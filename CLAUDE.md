@@ -1,60 +1,86 @@
 # CLAUDE.md — Zezet ERP · Backend (NestJS)
 
-> API for the Zezet ERP. Planning/requirements live in the repo root
-> (`../../CLAUDE.md`, `../../PLAN.md`). The **data model, API surface, and acceptance criteria** are in
-> `../../SPEC_Trial_Phase0-1.md` — treat it as the spec. Global `~/.claude/CLAUDE.md` applies on top.
+API for the **Zezet ERP** — a custom, single-tenant ERP for **Zezet** (zezet.net), a trucking/logistics
+company in **Panama**, replacing a legacy Excel workbook. Built modular and loosely coupled so features
+can be added with minimal disruption. Languages: English + Spanish (the API stays language-neutral).
+Currency: USD.
+
+The frontend is a separate repo (`zezet-erp-frontend`). The two share types via **OpenAPI codegen** —
+this API's Swagger spec (`/docs`) is the contract the frontend generates its client from. Keep it accurate.
 
 ---
 
+## Domain in one paragraph
+A fleet (~38 trucks, growing) runs daily **trips ("tournos")** for clients. Drivers + helpers (a mix of
+employees and contractors) are paid **per trip**. Client billing happens in irregular, client-driven
+periods. The **Trip is the universal record** — it carries the client, the charge, the driver/helper and
+their pay, and feeds both payroll and billing later. Audience for the product: operators with low software
+familiarity → keep behaviour simple and forgiving (warnings, not hard blocks).
+
 ## Stack
 - **NestJS** + **TypeScript** (strict; no `any` without justification).
-- **PostgreSQL** via **Prisma** (migrations only — never hand-edit schema/DB).
+- **PostgreSQL** via **Prisma** (currently pinned to **v6**; migrations only — never hand-edit schema/DB).
 - **Redis** — refresh-token store, caching reference data, future job queues (BullMQ).
-- **pnpm** (detect lockfile; don't switch package managers).
-- **OpenAPI** via `@nestjs/swagger` — the spec is the contract the frontend generates its client from. Keep it accurate.
+- **pnpm** (detect lockfile; don't switch package managers). Native build approvals live in `pnpm-workspace.yaml`.
+- **OpenAPI** via `@nestjs/swagger` — served at `/docs`.
+
+## Local setup
+```bash
+pnpm install
+cp .env.example .env          # DATABASE_URL, REDIS_URL, JWT secrets, CORS_ORIGIN
+pnpm infra:up                 # docker compose: PostgreSQL 16 + Redis 7
+pnpm db:migrate               # apply migrations
+pnpm start:dev                # API on :3001, docs at /docs
+```
 
 ## Architecture — modular monolith, loosely coupled
-Single deployable app; independent **domain modules** with strict boundaries. The point (client's explicit
-ask) is to add features with **minimal disruption**.
+Single deployable app; independent **domain modules** with strict boundaries. The goal is to add features
+with **minimal disruption**.
 - Each module owns its tables and exposes a public service interface (DI token). **No module reaches into
   another's internals.**
-- Cross-module side effects flow through an **internal event bus** (`@nestjs/cqrs` EventBus or
-  `@nestjs/event-emitter`). Example: Operations emits **`trip.created`**; Billing/Payroll modules
-  *subscribe* later — Operations never imports them. This is what keeps later phases non-disruptive.
-- Volatile integrations (bank import, GPS, notifications) behind ports/adapters so vendors can be swapped.
+- Cross-module side effects flow through an **internal event bus** (`@nestjs/event-emitter`, already wired
+  in `app.module.ts`). Example: Operations emits **`trip.created`**; Billing/Payroll modules *subscribe*
+  later — Operations never imports them. This is what keeps later phases non-disruptive.
+- Volatile integrations (bank import, GPS, notifications) sit behind ports/adapters so vendors can be swapped.
 
-### Modules (Phase 0–1 first; later phases stubbed but designed-for)
+### Modules (Phase 0–1 first; later phases designed-for, not yet built)
 `Identity/Auth` · `RBAC (CASL)` · `Fleet (Trucks)` · `Workforce (Workers)` · `Clients` · `Pricing (RateCards/Rates)`
-· `Operations (DailyTruckLog, Trip)` · `Reporting` · `Audit`. Later: `Payroll`, `Billing/AR`, `Ledger/CostAllocation`,
-`Treasury`, `BankImport`, `DriverApp/GPS`.
+· `Operations (DailyTruckLog, Trip)` · `Reporting` · `Audit`.
+Later: `Payroll`, `Billing/AR`, `Ledger/CostAllocation`, `Treasury`, `BankImport`, `DriverApp/GPS`.
 
-## Data model & rules (see SPEC §4 for the full schema)
-- **Trip is the universal record**: `clientId, billAmount, driverWorkerId, helperWorkerId?, driverPay, helperPay,
-  rateId?` under a `DailyTruckLog (date, truckId, fuel, odometer)`. **No trips/day cap.**
-- **Worker**: single pool, `type: employee|contractor`, `canDrive/canHelp`; same person can be driver or helper,
-  even same day. Optional `userId` (for future driver login).
-- **Pricing**: rate lookup prepopulates trip charge + driver/helper pay; **all editable** per trip.
+## Data model & rules
+The schema is **`prisma/schema.prisma`** (the source of truth for the data model). Key rules:
+- **Trip is the universal record**: `clientId, billAmount, driverWorkerId, helperWorkerId?, driverPay,
+  helperPay, rateId?` under a `DailyTruckLog (date, truckId, fuel, odometer)`. **No trips/day cap.**
+- **Worker**: single pool, `type: employee|contractor`, `canDrive/canHelp`; the same person can be driver
+  or helper, even on the same day. Optional `userId` (for future driver login).
+- **Pricing**: a rate lookup prepopulates a trip's charge + driver/helper pay; **all values editable** per trip.
 - **Billing periods** are client-driven and **irregular** → support arbitrary from/to date queries.
-- Prefer **status/soft-delete** over hard delete (preserve context). USD only.
-- Validation rule of thumb: **warn, don't block** (odometer regressions etc.) — the data is messy by nature.
+- Prefer **status / soft-delete** over hard delete (preserve context). USD only.
+- Validation rule of thumb: **warn, don't block** (e.g. odometer regressions) — the data is messy by nature.
 
 ## Auth & permissions
-- **JWT** access + refresh; refresh stored in **Redis** (revocable). Passwords hashed (argon2/bcrypt).
+- **JWT** access + refresh; refresh stored in **Redis** (revocable). Passwords hashed (argon2).
 - **Generated usernames**; email/phone optional/nullable.
 - **CASL** abilities keyed off roles (`admin, finance, ops_manager, ops_staff, driver, investor`). Enforce
   **field-level financial gating** — operations roles must never receive `billAmount`/pay/financial reports.
-  This is a hard requirement, not cosmetic.
+  This is a hard product requirement, not cosmetic.
 
 ## Conventions
 - Layering: controller → service → repository (Prisma). Validate input at the boundary with **class-validator** DTOs.
 - Never swallow errors; convert to typed domain errors + proper HTTP responses. Explicit handling on every failure path.
 - **Audit log** every create/update/delete (actor, entity, before/after) via an interceptor.
 - Transactions for multi-step writes; avoid N+1; index by real query patterns (justify with EXPLAIN as data grows).
-- i18n: API returns **stable codes / neutral data**; the frontend renders EN/ES strings.
+- The API returns **stable codes / neutral data**; the frontend renders EN/ES strings.
 - Idempotency + backoff for any external/webhook/queue work (bank import, later phases).
-- No AI/Claude signatures in code or commits. Tests before "done" (Jest unit, Supertest e2e on key flows).
+- Write clear, obvious code; document the WHY. **No AI-assistant signatures** in code or commits.
+- Test before "done" (Jest unit, Supertest e2e on key flows).
 
 ## Trial scope (Phase 0–1)
 Auth + RBAC + EN/ES-ready + audit + master data (Trucks/Workers/Clients/RateCards) + Operations
-(daily-log/trip CRUD with rate prepopulation, validations, derived totals, `trip.created` event) +
-role-gated Phase-1 reports. See SPEC §7 (10-day plan) and §8 (acceptance criteria).
+(daily-log/trip CRUD with rate prepopulation, validations, derived totals, the `trip.created` event) +
+role-gated Phase-1 reports.
+
+Acceptance highlights: app builds & runs; ops roles provably can't see financial fields/reports; daily trip
+entry works (date → truck → multiple trips, no cap, rate prepopulation that stays editable, driver+helper,
+fuel, odometer) with audit; one-command local setup (docker compose) + migrations/seed.
