@@ -9,9 +9,9 @@ Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked.
 
 ---
 
-## 0 · Bootstrap data layer  ⬜
-- [ ] `pnpm infra:up` (Postgres + Redis), then `pnpm db:migrate` — turn the schema into real tables
-- [ ] Seed script: roles (`admin, finance, ops_manager, ops_staff, driver, investor`) + a sample admin user
+## 0 · Bootstrap data layer  🟡
+- [x] `pnpm infra:up` (Postgres + Redis), then `pnpm db:migrate` — turn the schema into real tables
+- [x] Seed script: roles (`admin, finance, ops_manager, ops_staff, driver, investor`) + a sample admin user
 - [ ] CI: lint / typecheck / test on push
 
 ## 1 · Authentication  ⬜

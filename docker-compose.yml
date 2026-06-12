@@ -7,7 +7,8 @@ services:
       POSTGRES_PASSWORD: zezet
       POSTGRES_DB: zezet
     ports:
-      - "5432:5432"
+      # Host 5434 to avoid clashing with other local Postgres instances; container port stays 5432.
+      - "5434:5432"
     volumes:
       - zezet_pg:/var/lib/postgresql/data
     healthcheck:
@@ -20,7 +21,8 @@ services:
     image: redis:7-alpine
     container_name: zezet-redis
     ports:
-      - "6379:6379"
+      # Host 6381 to avoid clashing with other local Redis instances; container port stays 6379.
+      - "6381:6379"
     volumes:
       - zezet_redis:/data
 
