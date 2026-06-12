@@ -1,12 +1,24 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
-  app.enableCors({ origin: process.env.CORS_ORIGIN ?? '*', credentials: true });
+  // Parse cookies so the refresh_token httpOnly cookie is readable (ADR 0001).
+  app.use(cookieParser());
+
+  // Credentials are enabled (refresh cookie), so the origin MUST be explicit —
+  // a wildcard '*' is invalid with credentials. Require CORS_ORIGIN, don't guess.
+  const corsOrigin = process.env.CORS_ORIGIN;
+  if (!corsOrigin) {
+    throw new Error(
+      'CORS_ORIGIN is required (credentials are enabled; no wildcard allowed)',
+    );
+  }
+  app.enableCors({ origin: corsOrigin, credentials: true });
 
   // Validate + strip unknown fields at the boundary.
   app.useGlobalPipes(

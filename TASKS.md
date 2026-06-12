@@ -21,7 +21,7 @@ Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked.
 - [x] JWT **access + refresh**; refresh stored in **Redis** (revocable)
 - [x] `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `GET /auth/me`
 - [x] e2e tests on the auth flow
-- [ ] **Refactor refresh to httpOnly cookie** (ADR 0001) — login sets cookie; refresh reads cookie (drop
+- [x] **Refactor refresh to httpOnly cookie** (ADR 0001) — login sets cookie; refresh reads cookie (drop
       body param) + rotates + sets new cookie; logout clears it; access token stays in body. Add
       `cookie-parser`; make CORS use explicit `CORS_ORIGIN` (not `*`). Update the e2e to use the cookie jar.
       **Do this before the frontend builds auth.**

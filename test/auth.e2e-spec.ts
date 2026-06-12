@@ -2,12 +2,25 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient, RoleKey } from '@prisma/client';
 import * as argon2 from 'argon2';
+import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 
-// Exercises the full auth lifecycle against real Postgres + Redis.
-// Sets up its own user so it doesn't depend on the seed having run.
+const REFRESH_COOKIE = 'refresh_token';
+
+// Pull the `refresh_token=...` pair (sans attributes) out of a Set-Cookie header.
+function refreshCookieFrom(res: request.Response): string {
+  const header = res.headers['set-cookie'] as unknown as string[] | undefined;
+  const cookie = (header ?? []).find((c) => c.startsWith(`${REFRESH_COOKIE}=`));
+  if (!cookie) {
+    throw new Error('no refresh_token cookie on response');
+  }
+  return cookie.split(';')[0];
+}
+
+// Exercises the full cookie-based auth lifecycle (ADR 0001) against real
+// Postgres + Redis. Self-seeds its user so it doesn't depend on the seed.
 describe('Auth (e2e)', () => {
   let app: INestApplication<App>;
   const prisma = new PrismaClient();
@@ -17,7 +30,6 @@ describe('Auth (e2e)', () => {
   let userId: string;
 
   beforeAll(async () => {
-    // Clean any leftover from a prior run, then create the user + ops_staff role.
     await prisma.user.deleteMany({ where: { username } });
     const role = await prisma.role.upsert({
       where: { key: RoleKey.ops_staff },
@@ -37,6 +49,7 @@ describe('Auth (e2e)', () => {
       imports: [AppModule],
     }).compile();
     app = moduleFixture.createNestApplication();
+    app.use(cookieParser());
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -62,28 +75,39 @@ describe('Auth (e2e)', () => {
       .expect(401);
   });
 
-  it('rejects malformed login body with 400', async () => {
-    await request(server())
-      .post('/auth/login')
-      .send({ username, password, extra: 'nope' })
-      .expect(400);
+  it('refresh without a cookie → 401', async () => {
+    await request(server()).post('/auth/refresh').expect(401);
   });
 
-  it('runs login → me → refresh (rotation) → logout', async () => {
-    // login
-    const login = await request(server())
+  it('login sets an httpOnly refresh cookie and omits the refresh token from the body', async () => {
+    const res = await request(server())
       .post('/auth/login')
       .send({ username, password })
       .expect(200);
-    const { accessToken, refreshToken } = login.body as {
-      accessToken: string;
-      refreshToken: string;
-    };
-    expect(accessToken).toBeTruthy();
-    expect(refreshToken).toBeTruthy();
 
-    // me — returns profile + roles, never a password hash
-    const me = await request(server())
+    const body = res.body as { accessToken: string };
+    expect(res.body).toMatchObject({ tokenType: 'Bearer' });
+    expect(body.accessToken).toBeTruthy();
+    expect(res.body).not.toHaveProperty('refreshToken');
+
+    const setCookie = res.headers['set-cookie'] as unknown as string[];
+    const cookie = setCookie.find((c) => c.startsWith(`${REFRESH_COOKIE}=`))!;
+    expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).toMatch(/Path=\/auth/i);
+  });
+
+  it('runs me → refresh (rotation) → logout via the cookie jar', async () => {
+    const agent = request.agent(server());
+
+    const login = await agent
+      .post('/auth/login')
+      .send({ username, password })
+      .expect(200);
+    const accessToken = (login.body as { accessToken: string }).accessToken;
+    const oldCookie = refreshCookieFrom(login);
+
+    // me — profile + roles, never the password hash
+    const me = await agent
       .get('/auth/me')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
@@ -97,31 +121,27 @@ describe('Auth (e2e)', () => {
     // me without a token → 401
     await request(server()).get('/auth/me').expect(401);
 
-    // refresh → new pair
-    const refreshed = await request(server())
-      .post('/auth/refresh')
-      .send({ refreshToken })
-      .expect(200);
-    const newRefresh = (refreshed.body as { refreshToken: string })
-      .refreshToken;
-    expect(newRefresh).toBeTruthy();
+    // refresh — cookie sent automatically by the agent; rotates the cookie
+    const refreshed = await agent.post('/auth/refresh').expect(200);
+    const newCookie = refreshCookieFrom(refreshed);
+    expect(newCookie).not.toEqual(oldCookie);
 
-    // old refresh token was rotated out → now invalid
+    // the rotated-out cookie is now rejected
     await request(server())
       .post('/auth/refresh')
-      .send({ refreshToken })
+      .set('Cookie', oldCookie)
       .expect(401);
 
-    // logout (needs access token) revokes the active refresh token
-    await request(server())
+    // logout (needs access token) revokes the refresh token + clears the cookie
+    await agent
       .post('/auth/logout')
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(204);
 
-    // the rotated refresh token no longer works after logout
+    // the current cookie no longer works after logout (Redis key gone)
     await request(server())
       .post('/auth/refresh')
-      .send({ refreshToken: newRefresh })
+      .set('Cookie', newCookie)
       .expect(401);
   });
 });

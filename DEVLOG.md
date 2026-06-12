@@ -6,6 +6,28 @@ See `CLAUDE.md` → "Working rhythm & handoff" for the format. Status of items l
 
 ---
 
+## 2026-06-12 · Section 1 — Refactor refresh → httpOnly cookie (ADR 0001) ✅
+**What changed**
+- Refresh token now rides in an **httpOnly cookie** `refresh_token` (`Path=/auth`, `SameSite=Lax`, `Secure` in prod only, `Max-Age` = refresh TTL), never the body. Login/refresh set it; **refresh reads it from the cookie** (no request body) + rotates + sets the new cookie; **logout clears it** + revokes in Redis. Access token still returned in the body.
+- Added `cookie-parser` (+ `@types/cookie-parser`); wired `app.use(cookieParser())` in `main.ts`.
+- **CORS** now **requires** explicit `CORS_ORIGIN` (boot throws if unset) with `credentials: true` — no `*` fallback (invalid with credentials).
+- New `src/auth/auth.cookie.ts` (cookie name + shared options so set/clear stay in lockstep). Removed `RefreshDto`; `TokenResponseDto` → `AccessTokenResponseDto` (body no longer carries the refresh token). Service returns an internal `IssuedTokens`; controller splits cookie vs body.
+- e2e rewritten to a **cookie jar** (`request.agent`): asserts no `refreshToken` in body, cookie is `HttpOnly`+`Path=/auth`, rotation invalidates the old cookie, logout revokes. Smoke-tested the real app (`start:prod`) — Set-Cookie verified.
+
+**Decisions / deviations**
+- **Fixed a build/packaging bug found while smoke-testing** (pre-existing since Task 0): `prisma/seed.ts` sits outside `src/`, so `nest build` nested output under `dist/src/` and broke `start:prod` (`node dist/main`). Added `prisma` to `tsconfig.build.json` `exclude` → output back at `dist/main.js`. `start:prod` now boots.
+- Swagger: `@ApiCookieAuth('refresh_token')` on `/auth/refresh`; body schema is `AccessTokenResponseDto`. OpenAPI stays accurate for the frontend client.
+
+**Gotchas / risks**
+- Cookie `Path=/auth` is hardcoded; if a global route prefix is added later, update `refreshCookieOptions` (ADR notes this).
+- `SameSite=Lax` assumes a **same-site** deploy (`app.*` + `api.*`). A truly cross-site setup needs `SameSite=None; Secure` **+** CSRF token (ADR 0001 §Consequences).
+- CORS now hard-fails without `CORS_ORIGIN` — it's in `.env`/`.env.example` and the CI job env, so covered; just don't drop it.
+
+**Next**
+- Section 1b hardening (non-blocking) **or** Section 2 RBAC + Audit. Recommend **Section 2** next (unblocks master-data + the financial-gating requirement); 1b (throttler, env-schema, logout/TTL doc) can slot in before deploy.
+
+---
+
 ## 2026-06-12 · Section 1 — Authentication (JWT access+refresh, revocable) 🟡
 **What changed**
 - New **AuthModule**: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`. argon2 password verify; access JWT (roles in payload) + refresh JWT; Swagger-documented DTOs/responses so the OpenAPI contract stays accurate.

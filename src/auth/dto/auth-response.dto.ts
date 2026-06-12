@@ -4,12 +4,11 @@ import { RoleKey } from '@prisma/client';
 // Response shapes exist so the OpenAPI spec (and the generated frontend client)
 // describe auth payloads accurately.
 
-export class TokenResponseDto {
+// Response body for login/refresh. The refresh token is NOT here — it's set as
+// an httpOnly cookie (ADR 0001). Only the short-lived access token is returned.
+export class AccessTokenResponseDto {
   @ApiProperty()
   accessToken!: string;
-
-  @ApiProperty()
-  refreshToken!: string;
 
   @ApiProperty({ example: 'Bearer' })
   tokenType!: string;

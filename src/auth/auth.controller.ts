@@ -5,55 +5,86 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Req,
+  Res,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ApiBearerAuth,
+  ApiCookieAuth,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { AuthService } from './auth.service';
+import type { Request, Response } from 'express';
+import { AuthService, IssuedTokens } from './auth.service';
+import { REFRESH_COOKIE, refreshCookieOptions } from './auth.cookie';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { LoginDto } from './dto/login.dto';
-import { RefreshDto } from './dto/refresh.dto';
-import { MeResponseDto, TokenResponseDto } from './dto/auth-response.dto';
+import { AccessTokenResponseDto, MeResponseDto } from './dto/auth-response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthUser } from './strategies/jwt.strategy';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly config: ConfigService,
+  ) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Log in with username + password' })
-  @ApiOkResponse({ type: TokenResponseDto })
+  @ApiOperation({
+    summary: 'Log in; sets the refresh_token httpOnly cookie',
+  })
+  @ApiOkResponse({ type: AccessTokenResponseDto })
   @ApiUnauthorizedResponse({ description: 'Invalid credentials' })
-  login(@Body() dto: LoginDto): Promise<TokenResponseDto> {
-    return this.authService.login(dto);
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AccessTokenResponseDto> {
+    const tokens = await this.authService.login(dto);
+    return this.respondWithTokens(res, tokens);
   }
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  @ApiCookieAuth(REFRESH_COOKIE)
   @ApiOperation({
-    summary: 'Exchange a refresh token for a new token pair (rotates)',
+    summary: 'Rotate tokens using the refresh_token cookie (no request body)',
   })
-  @ApiOkResponse({ type: TokenResponseDto })
-  @ApiUnauthorizedResponse({ description: 'Refresh token invalid or revoked' })
-  refresh(@Body() dto: RefreshDto): Promise<TokenResponseDto> {
-    return this.authService.refresh(dto.refreshToken);
+  @ApiOkResponse({ type: AccessTokenResponseDto })
+  @ApiUnauthorizedResponse({
+    description: 'Refresh cookie missing, invalid, or revoked',
+  })
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<AccessTokenResponseDto> {
+    const cookies = req.cookies as Record<string, string | undefined>;
+    const refreshToken = cookies?.[REFRESH_COOKIE];
+    if (!refreshToken) {
+      throw new UnauthorizedException('Missing refresh token');
+    }
+    const tokens = await this.authService.refresh(refreshToken);
+    return this.respondWithTokens(res, tokens);
   }
 
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Revoke the current refresh token' })
-  logout(@CurrentUser() user: AuthUser): Promise<void> {
-    return this.authService.logout(user.userId);
+  @ApiOperation({ summary: 'Revoke the refresh token and clear the cookie' })
+  async logout(
+    @CurrentUser() user: AuthUser,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    await this.authService.logout(user.userId);
+    res.clearCookie(REFRESH_COOKIE, refreshCookieOptions(this.config));
   }
 
   @Get('me')
@@ -64,5 +95,22 @@ export class AuthController {
   @ApiUnauthorizedResponse({ description: 'Missing or invalid access token' })
   me(@CurrentUser() user: AuthUser): Promise<MeResponseDto> {
     return this.authService.me(user.userId);
+  }
+
+  // Put the refresh token in the httpOnly cookie; return only access fields.
+  private respondWithTokens(
+    res: Response,
+    tokens: IssuedTokens,
+  ): AccessTokenResponseDto {
+    res.cookie(
+      REFRESH_COOKIE,
+      tokens.refreshToken,
+      refreshCookieOptions(this.config),
+    );
+    return {
+      accessToken: tokens.accessToken,
+      tokenType: tokens.tokenType,
+      expiresIn: tokens.expiresIn,
+    };
   }
 }

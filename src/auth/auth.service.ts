@@ -7,7 +7,7 @@ import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { LoginDto } from './dto/login.dto';
-import { MeResponseDto, TokenResponseDto } from './dto/auth-response.dto';
+import { MeResponseDto } from './dto/auth-response.dto';
 
 // User loaded with roles for token issuance / profile.
 type UserWithRoles = Prisma.UserGetPayload<{
@@ -18,6 +18,16 @@ type UserWithRoles = Prisma.UserGetPayload<{
 interface RefreshPayload {
   sub: string;
   jti: string;
+}
+
+// What the service hands back to the controller: the controller puts the
+// refresh token in an httpOnly cookie and returns only the access fields in
+// the body (ADR 0001).
+export interface IssuedTokens {
+  accessToken: string;
+  refreshToken: string;
+  tokenType: string;
+  expiresIn: number;
 }
 
 @Injectable()
@@ -35,13 +45,13 @@ export class AuthService {
     return `refresh:${userId}`;
   }
 
-  async login(dto: LoginDto): Promise<TokenResponseDto> {
+  async login(dto: LoginDto): Promise<IssuedTokens> {
     const user = await this.validateUser(dto.username, dto.password);
     return this.issueTokens(user);
   }
 
   // Verify a refresh token against Redis, rotate it, and issue a fresh pair.
-  async refresh(refreshToken: string): Promise<TokenResponseDto> {
+  async refresh(refreshToken: string): Promise<IssuedTokens> {
     let payload: RefreshPayload;
     try {
       payload = await this.jwt.verifyAsync<RefreshPayload>(refreshToken, {
@@ -107,7 +117,7 @@ export class AuthService {
     return user;
   }
 
-  private async issueTokens(user: UserWithRoles): Promise<TokenResponseDto> {
+  private async issueTokens(user: UserWithRoles): Promise<IssuedTokens> {
     const roles = this.roleKeys(user);
     const accessTtl = Number(this.config.getOrThrow<string>('JWT_ACCESS_TTL'));
     const refreshTtl = Number(
