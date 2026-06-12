@@ -61,6 +61,10 @@ The schema is **`prisma/schema.prisma`** (the source of truth for the data model
 
 ## Auth & permissions
 - **JWT** access + refresh; refresh stored in **Redis** (revocable). Passwords hashed (argon2).
+- **Refresh token lives in an httpOnly cookie**, not the response body; access token is returned in the body
+  and held in frontend memory. See `docs/decisions/0001-refresh-token-httponly-cookie.md` (the settled
+  contract — login sets cookie, refresh reads cookie + rotates, logout clears it). CORS must use the
+  **explicit** `CORS_ORIGIN` (never `*`) since credentials are enabled.
 - **Generated usernames**; email/phone optional/nullable.
 - **CASL** abilities keyed off roles (`admin, finance, ops_manager, ops_staff, driver, investor`). Enforce
   **field-level financial gating** — operations roles must never receive `billAmount`/pay/financial reports.

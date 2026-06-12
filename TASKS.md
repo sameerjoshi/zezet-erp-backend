@@ -21,6 +21,15 @@ Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked.
 - [x] JWT **access + refresh**; refresh stored in **Redis** (revocable)
 - [x] `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `GET /auth/me`
 - [x] e2e tests on the auth flow
+- [ ] **Refactor refresh to httpOnly cookie** (ADR 0001) — login sets cookie; refresh reads cookie (drop
+      body param) + rotates + sets new cookie; logout clears it; access token stays in body. Add
+      `cookie-parser`; make CORS use explicit `CORS_ORIGIN` (not `*`). Update the e2e to use the cookie jar.
+      **Do this before the frontend builds auth.**
+
+### 1b · Auth hardening (before deploy, not blocking frontend)  ⬜
+- [ ] Rate-limit `/auth/login` (`@nestjs/throttler`) — brute-force defense
+- [ ] Env-var schema validation at boot (Joi/Zod) so missing `JWT_*` fails fast, not lazily
+- [ ] Document that logout revokes refresh only; the current access token lives until its TTL (≤15m)
 
 ## 2 · RBAC + Audit  ⬜
 - [ ] **CASL** abilities keyed off roles; Users/Roles endpoints (admin)
