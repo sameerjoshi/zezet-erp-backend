@@ -2,6 +2,7 @@
 // Safe to run repeatedly — uses upserts keyed on unique columns, so it never duplicates.
 // Run with: pnpm db:seed
 import {
+  LogStatus,
   PrismaClient,
   RoleKey,
   TruckStatus,
@@ -61,6 +62,9 @@ async function main(): Promise<void> {
 
   // 4) Sample master data so the frontend has something to render.
   await seedMasterData();
+
+  // 5) Sample operations data (daily logs + trips) for today.
+  await seedOperations();
 
   const roleCount = await prisma.role.count();
   console.log(`Seed complete: ${roleCount} roles ensured.`);
@@ -140,6 +144,112 @@ async function seedMasterData(): Promise<void> {
     if (!existing) {
       await prisma.rate.create({ data: { rateCardId: card.id, ...r } });
     }
+  }
+}
+
+// Two daily logs for today (one confirmed with two trips, one draft with one),
+// so the operations dashboard + trip list have data. Idempotent: find-or-create
+// on the unique (date, truckId); trips are only created when the log is new.
+async function seedOperations(): Promise<void> {
+  const truck1 = await prisma.truck.findUnique({ where: { code: 'Camión 1' } });
+  const truck2 = await prisma.truck.findUnique({ where: { code: 'Camión 2' } });
+  const selva = await prisma.client.findUnique({ where: { code: 'SELVA' } });
+  const driver = await prisma.worker.findFirst({
+    where: { fullName: 'Juan Pérez' },
+  });
+  const helper = await prisma.worker.findFirst({
+    where: { fullName: 'Marco Díaz' },
+  });
+  if (!truck1 || !truck2 || !selva || !driver || !helper) {
+    return;
+  }
+
+  const card = await prisma.rateCard.findFirst({
+    where: { clientId: selva.id, name: 'Standard 2026' },
+  });
+  const rateColon = card
+    ? await prisma.rate.findFirst({
+        where: { rateCardId: card.id, label: 'Ciudad → Colón' },
+      })
+    : null;
+  const rateDavid = card
+    ? await prisma.rate.findFirst({
+        where: { rateCardId: card.id, label: 'Ciudad → David' },
+      })
+    : null;
+
+  // Today at UTC midnight — matches the @db.Date column deterministically.
+  const now = new Date();
+  const date = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+
+  // Log 1 — confirmed, two trips (one with a helper, one without).
+  const existing1 = await prisma.dailyTruckLog.findUnique({
+    where: { date_truckId: { date, truckId: truck1.id } },
+  });
+  if (!existing1) {
+    const log = await prisma.dailyTruckLog.create({
+      data: {
+        date,
+        truckId: truck1.id,
+        fuelCost: 45,
+        odometerStart: 120000,
+        odometerEnd: 120140,
+        status: LogStatus.confirmed,
+      },
+    });
+    await prisma.trip.create({
+      data: {
+        dailyLogId: log.id,
+        seq: 1,
+        clientId: selva.id,
+        routeLabel: 'Ciudad → Colón',
+        billAmount: rateColon?.clientPrice ?? 350,
+        driverWorkerId: driver.id,
+        helperWorkerId: helper.id,
+        driverPay: rateColon?.driverPay ?? 120,
+        helperPay: rateColon?.helperPay ?? 60,
+        rateId: rateColon?.id,
+      },
+    });
+    await prisma.trip.create({
+      data: {
+        dailyLogId: log.id,
+        seq: 2,
+        clientId: selva.id,
+        routeLabel: 'Ciudad → David',
+        billAmount: rateDavid?.clientPrice ?? 600,
+        driverWorkerId: driver.id,
+        driverPay: rateDavid?.driverPay ?? 200,
+        helperPay: rateDavid?.helperPay ?? 100,
+        rateId: rateDavid?.id,
+      },
+    });
+  }
+
+  // Log 2 — draft, one trip.
+  const existing2 = await prisma.dailyTruckLog.findUnique({
+    where: { date_truckId: { date, truckId: truck2.id } },
+  });
+  if (!existing2) {
+    const log = await prisma.dailyTruckLog.create({
+      data: { date, truckId: truck2.id, fuelCost: 30, odometerStart: 98000 },
+    });
+    await prisma.trip.create({
+      data: {
+        dailyLogId: log.id,
+        seq: 1,
+        clientId: selva.id,
+        routeLabel: 'Ciudad → Colón',
+        billAmount: rateColon?.clientPrice ?? 350,
+        driverWorkerId: driver.id,
+        helperWorkerId: helper.id,
+        driverPay: rateColon?.driverPay ?? 120,
+        helperPay: rateColon?.helperPay ?? 60,
+        rateId: rateColon?.id,
+      },
+    });
   }
 }
 

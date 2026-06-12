@@ -149,17 +149,27 @@ export class PricingService {
     clientId: string,
     label?: string,
   ): Promise<RateLookupResponseDto> {
+    const selected = await this.findEffectiveRate(clientId, label);
+    return {
+      found: selected !== null,
+      rate: selected ? this.toRateDto(selected) : null,
+    };
+  }
+
+  // Shared effective-rate resolution returning the Rate ENTITY (not a DTO), so
+  // callers that need the raw money columns — e.g. Operations prepopulating a
+  // trip — reuse the exact selection logic the lookup endpoint uses.
+  async findEffectiveRate(
+    clientId: string,
+    label?: string,
+  ): Promise<Rate | null> {
     const rates = await this.prisma.rate.findMany({
       where: {
         rateCard: { clientId, status: UserStatus.active },
         ...(label !== undefined ? { label } : {}),
       },
     });
-    const selected = selectEffectiveRate(rates, new Date());
-    return {
-      found: selected !== null,
-      rate: selected ? this.toRateDto(selected) : null,
-    };
+    return selectEffectiveRate(rates, new Date());
   }
 
   // --- helpers ---

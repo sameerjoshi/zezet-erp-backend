@@ -5,6 +5,34 @@ Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Nex
 
 ---
 
+## 2026-06-12 · Section 4 — Operations (DailyTruckLog + the Trip) ✅
+**What changed**
+- **`src/operations/*`** (`OperationsController` `@Controller()` w/ explicit paths, single `OperationsService`, `@UseGuards(JwtAuthGuard, PoliciesGuard)`, audited). Subject is **`'Trip'`** for every route per the brief.
+- **DailyTruckLog** — `GET /daily-logs?date=&truckId=` (single log + trips, 404 if none), `POST /daily-logs` (**get-or-create** on the unique [date,truckId]), `GET /daily-logs/:id` (detail + derived totals), `PATCH /daily-logs/:id` (fuel/odometer/notes), `PATCH /daily-logs/:id/confirm` (draft→confirmed). `enteredById` = current user.
+- **Trip** — `POST /daily-logs/:id/trips`, `PATCH /trips/:id`, `DELETE /trips/:id` (**hard delete**). On create with no `rateId`, the **shared** `PricingService.findEffectiveRate` (refactored out of the lookup so logic is not duplicated — it returns the Rate entity; `lookup()` now wraps it) resolves the effective rate by clientId+routeLabel and **prepopulates billAmount/driverPay/helperPay**; any money field in the DTO **overrides** it (pure `resolveTripFinancials`, honours explicit `0`). An explicit `rateId` also prepopulates. `seq` auto-increments within the log (`nextSeq`, computed inside a `$transaction` to avoid collisions; gaps from deletes are not reused).
+- **Warnings (WARN, don't block)** — pure `computeLogWarnings` (`src/operations/log-warnings.ts`): odometer end<start, start<previous log's odometerEnd (fetched per-truck), and confirming a zero-trip log. Returned as `warnings: string[]` on every log response payload; the row is still saved/confirmed. **Hard errors** only for referential integrity (unknown truck/client/driver/helper/rate → 400) and the unique constraint (backstopped by get-or-create).
+- **Derived totals** — `GET /daily-logs/:id` returns `tripCount` + `totals {billAmount,driverPay,helperPay}` (Decimal-summed, 2-dp strings). `GET /operations/summary?date=` → per-truck `status: none|draft|confirmed`, `logId`, `tripCount` over **active** trucks + roll-up `counts {trucks,none,draft,confirmed}` for the dashboard.
+- **Event** — emits `trip.created` (EventEmitter2) on trip create; no subscribers yet. Payload in `src/operations/events/trip-created.event.ts`.
+- **Money gating** — relies on the global financial gate: `fuelCost`, trip `billAmount/driverPay/helperPay`, and the `totals` object's keys are all stripped for ops roles (those keys are in `FINANCIAL_FIELDS`); `tripCount` and the rest stay. Verified in e2e.
+- **Seed** — `seedOperations()`: two logs for **today** (one confirmed w/ 2 trips incl. a helper, one draft w/ 1 trip) for Camión 1/2 + SELVA, idempotent (find-or-create on [date,truckId]).
+- **Tests** — unit `log-warnings.spec.ts` + `trip-financials.spec.ts` (odometer warnings, rate prepopulation+override+explicit-0, seq increment); e2e `test/operations.e2e-spec.ts` (create log → trips with/without rateId → totals 350+500=850 → ops money stripped → odometer-warning still saves → confirm w/ + w/o trips → unknown-client 400 → ops 403 on delete vs admin 200 → summary). **Full DoD gate green**: lint, lint:ci, build, 54 unit, 32 e2e.
+
+**Decisions / deviations**
+- **POST /daily-logs is get-or-create** (returns the existing log on duplicate instead of 400) — best reading of "get-or-create per (date,truckId)"; the DB unique constraint is the backstop. PATCH is the update path, so a duplicate POST does **not** overwrite fuel/odometer.
+- **`DELETE /trips/:id` requires `delete Trip`** → ops_staff (create/update only) **cannot** hard-delete; ops_manager/finance/admin can. Did **not** modify `CaslAbilityFactory`.
+- Summary status uses the `LogStatus` enum values (`draft|confirmed`) + `none`, not the brief's loose word "entered" — precise for the dashboard.
+- `trip.created` carries money as **2-dp strings** (project wire format), not numbers — lossless and consistent; Billing/Payroll `Number()` them.
+- PATCH /trips does **not** re-run rate prepopulation (lookup is create-time only); it applies exactly the supplied fields. No schema/migration change (init migration already had both models).
+
+**Gotchas / risks**
+- `seq` transaction reads max-then-writes; safe under normal load but not a DB sequence — extreme concurrency on one log could still race (acceptable for this domain; note for later).
+- e2e self-seeds actors + master data and cleans them (`E2E-OPS-*`, users `e2e_ops_*`); needs infra up (5434/6381).
+
+**Next**
+- Section 5 — Reporting/Billing/Payroll: subscribe to `trip.created`; build period roll-ups (investor/finance reports) on the `Report`/`Financial` subjects.
+
+---
+
 ## 2026-06-12 · Section 3 — Master data (Fleet/Workforce/Clients) + Pricing 🟡
 **What changed**
 - **Fleet** (`src/fleet/*`, `@Controller('trucks')`, subject `'Truck'`): `POST /trucks` (create `Truck`), `GET /trucks?status=`, `GET /trucks/:id`, `PATCH /trucks/:id`, `PATCH /trucks/:id/deactivate` (soft-delete → `status=inactive`). Reads gated by `read Truck` (ops+finance+admin), mutations by `create`/`update Truck` (ops_manager+admin). `purchasePrice` serialized as a 2-dp string; the **global financial gate strips it for ops** — DTO/serialization don't bypass it.

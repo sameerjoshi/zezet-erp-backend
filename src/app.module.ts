@@ -7,6 +7,7 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { ClientsModule } from './clients/clients.module';
 import { FleetModule } from './fleet/fleet.module';
+import { OperationsModule } from './operations/operations.module';
 import { PricingModule } from './pricing/pricing.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RbacModule } from './rbac/rbac.module';
@@ -34,7 +35,11 @@ import { WorkforceModule } from './workforce/workforce.module';
     WorkforceModule,
     ClientsModule,
     PricingModule,
-    // Remaining domain modules (Operations, Reporting) are added later.
+    // Section 4 — Operations: DailyTruckLog + the Trip (the universal record),
+    // rate-prepopulated trips, non-blocking warnings, and the `trip.created`
+    // event for downstream Billing/Payroll.
+    OperationsModule,
+    // Remaining domain modules (Reporting) are added later.
   ],
   controllers: [AppController],
   providers: [AppService],
