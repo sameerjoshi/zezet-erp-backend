@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    name: lint · build · test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: zezet
+          POSTGRES_PASSWORD: zezet
+          POSTGRES_DB: zezet
+        ports:
+          # CI-standard 5432 (local dev remaps to 5434; everything stays env-driven).
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zezet"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # CI-scoped connection — NOT the local 5434 remap. Driven entirely by env.
+      DATABASE_URL: postgresql://zezet:zezet@localhost:5432/zezet?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      JWT_ACCESS_TTL: "900"
+      JWT_REFRESH_TTL: "1209600"
+      CORS_ORIGIN: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Lint
+        run: pnpm lint:ci
+
+      - name: Build
+        run: pnpm build
+
+      - name: Apply migrations
+        run: pnpm exec prisma migrate deploy
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: E2E tests
+        run: pnpm test:e2e
