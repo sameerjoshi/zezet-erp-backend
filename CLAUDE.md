@@ -76,6 +76,22 @@ The schema is **`prisma/schema.prisma`** (the source of truth for the data model
 - Write clear, obvious code; document the WHY. **No AI-assistant signatures** in code or commits.
 - Test before "done" (Jest unit, Supertest e2e on key flows).
 
+## Working rhythm & handoff (READ THIS)
+Work **one TASKS.md item at a time**: plan briefly → implement → verify (build + relevant tests) →
+tick the box → commit. Keep `TASKS.md`, `DEVLOG.md`, and the code in the **same commit**.
+
+**Maintain `DEVLOG.md`** — it's the handoff the planning/review session reads, so comms don't depend on
+chat. After each task (or any notable change), add a dated entry at the **top** with:
+- **What changed** (1–4 bullets)
+- **Decisions / deviations** — anything not obvious from the diff (version pins, port changes, defaults,
+  trade-offs). Operational facts a reviewer must know go here, e.g. local Postgres host port, dev seed
+  password default, why a dependency was pinned.
+- **Gotchas / risks** — things to fix before real deployment, or that could bite the next task.
+- **Next** — the next unchecked TASKS.md item.
+
+Keep entries short and skimmable. This file is the single place the hub checks to review progress and
+decide what's next — treat it as the source of truth for "where the backend is."
+
 ## Trial scope (Phase 0–1)
 Auth + RBAC + EN/ES-ready + audit + master data (Trucks/Workers/Clients/RateCards) + Operations
 (daily-log/trip CRUD with rate prepopulation, validations, derived totals, the `trip.created` event) +
