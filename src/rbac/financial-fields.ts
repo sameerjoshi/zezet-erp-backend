@@ -9,6 +9,7 @@
 //   - clientPrice : Rate client price
 //   - purchasePrice: Truck acquisition cost
 //   - fuelCost    : DailyTruckLog fuel cost
+//   - totalPay    : Reporting-derived worker pay total (driverPay + helperPay)
 export const FINANCIAL_FIELDS: readonly string[] = [
   'billAmount',
   'driverPay',
@@ -16,6 +17,7 @@ export const FINANCIAL_FIELDS: readonly string[] = [
   'clientPrice',
   'purchasePrice',
   'fuelCost',
+  'totalPay',
 ] as const;
 
 // Fast-lookup form used by the recursive stripper.

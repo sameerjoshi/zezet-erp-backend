@@ -5,6 +5,30 @@ Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Nex
 
 ---
 
+## 2026-06-12 · Section 5 — Reporting + Auth hardening ✅
+**What changed**
+- **`src/reporting/*`** — new `ReportingController` (`@Controller('reports')`, `@UseGuards(JwtAuthGuard, PoliciesGuard)`, controller-level `@RequireAbility(Read, 'Report')`) + `ReportingService`. All math is in pure `src/reporting/reporting.aggregate.ts` (no I/O → unit-testable); the service fetches trip rows (trips joined through `dailyLog.date`/`truck`/`client`/`driver`/`helper`) and folds them. Endpoints take an **inclusive** `?from=&to=` (ISO `YYYY-MM-DD`):
+  - `GET /reports/trips` → `{ from, to, totalTrips, perDay:[{date,tripCount}], perTruck:[{truckId,truckCode,tripCount}] }`.
+  - `GET /reports/utilization` → `{ from, to, perDay:[{date,activeTrucks,trucksWithTrips,utilization}] }`. `utilization` = trucksWithTrips ÷ activeTrucks (0..1 number, 4-dp; 0 when no active trucks). Every day in the range is present (incl. zero-trip days).
+  - `GET /reports/worker-pay` → `{ from, to, workers:[{workerId,workerName,driverPay,helperPay,totalPay}] }` (money; sorted by totalPay desc). A worker accrues `driverPay` on trips driven + `helperPay` on trips helped.
+  - `GET /reports/client-billables` → `{ from, to, clients:[{clientId,clientName,tripCount,billAmount}] }` (money; sorted by billAmount desc).
+- **Role gating** — `Report` subject ⇒ ops_manager/ops_staff/driver get **403** (CASL `cannot Read Report`); only admin/finance/investor read. Money reports also pass the global financial gate, but every `Report` reader can also `Read Financial`, so figures are returned to them intact. Added **`totalPay`** to `FINANCIAL_FIELDS` (defence-in-depth on the derived total).
+- **Date range** — `from`/`to` optional (`IsDateString`); default = trailing **30-day** window (`to`=today UTC, `from`=`to`−29d). Inverted range → 400; range > 366 days → 400.
+- **Auth hardening** — (1) **Throttle** `POST /auth/login` + `/auth/refresh` at **10 req / 60s / IP** via `@nestjs/throttler` (`ThrottlerModule.forRoot` in AppModule, `@UseGuards(ThrottlerGuard)` narrowly on the two routes — rest of API unthrottled; `ThrottlerGuard` runs before auth so it 429s regardless of credentials). (2) **Boot-time env validation** — `ConfigModule.forRoot({ validationSchema })` with Joi (`src/config/env.validation.ts`) asserts `DATABASE_URL, REDIS_URL, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, JWT_ACCESS_TTL, JWT_REFRESH_TTL, CORS_ORIGIN`; `allowUnknown: true` lets PORT/NODE_ENV/SEED_* through. Missing/garbage var now crashes startup. (3) **ADR 0002** — logout revokes refresh only; the access token lives out its ≤15m TTL.
+- **Deps** — `@nestjs/throttler@6.5.0`, `joi@18.2.1` (lockfile updated).
+- **Tests** — unit `src/reporting/reporting.aggregate.spec.ts` (per-day/per-truck counts, utilization incl. dedupe + zero-truck divide-by-zero, worker-pay driver+helper split, client billables). e2e `test/reporting.e2e-spec.ts` (admin gets each report shape WITH money: worker driverPay 240, helper 120, client bill 800, truck tripCount 2, utilization 31-day window; ops 403 on all four; inverted range 400) + `test/auth-throttle.e2e-spec.ts` (11th login → 429). **Full DoD green**: lint, lint:ci, build, **61 unit**, **39 e2e**.
+
+**Decisions / deviations**
+- **e2e now runs in-band** (`test/jest-e2e.json`: `maxWorkers: 1`, `testTimeout: 30000`). Seven suites share one Postgres/Redis; parallel workers raced on the role `upsert`s + starved heavy `beforeAll` hooks (argon2 + ~10 HTTP calls) past the 5s hook budget → intermittent failures. Serialized = deterministic + fast (~11s). This is the right model for shared-DB e2e.
+- **`utilization` uses the *current* active-truck count** (no truck status history in schema) — `activeTrucks` is the same for every day in a response. Note for later if status history is added.
+- **"Money stripped where relevant" for reports** is moot: every `Report` reader also has `Financial`, so reports never strip. The field-level gate is still proven for ops in the operations e2e; reporting e2e instead asserts money is *present* for admin + ops is 403'd before reaching it.
+- Throttle applied **narrowly** (per-route guard) rather than a global APP_GUARD, so only auth is rate-limited.
+
+**Gotchas / risks**
+- Throttle storage is **in-memory per app instance** (fine for single-node + tests). Multi-instance deploy needs a shared store (e.g. `@nest-lab/throttler-storage-redis`) or the limit is per-pod — note for scale-out.
+- e2e specs key cleanup off ids set in `beforeAll`; a mid-`beforeAll` failure (e.g. a leftover unique `code`) leaves rows the `afterAll` can't delete by id. Reporting's `afterAll` now filters undefined ids; if a run is interrupted, purge `E2E-%` rows before re-running.
+- Joi coerces `JWT_*_TTL` to number for the validated config, but `process.env` stays string — `AuthService` already `Number()`s them, so no behaviour change.
+
 ## 2026-06-12 · Section 4 — Operations (DailyTruckLog + the Trip) ✅
 **What changed**
 - **`src/operations/*`** (`OperationsController` `@Controller()` w/ explicit paths, single `OperationsService`, `@UseGuards(JwtAuthGuard, PoliciesGuard)`, audited). Subject is **`'Trip'`** for every route per the brief.

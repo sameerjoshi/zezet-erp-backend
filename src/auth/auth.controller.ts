@@ -17,8 +17,10 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { AuthService, IssuedTokens } from './auth.service';
 import { REFRESH_COOKIE, refreshCookieOptions } from './auth.cookie';
@@ -36,13 +38,17 @@ export class AuthController {
     private readonly config: ConfigService,
   ) {}
 
+  // Brute-force guard: 10 attempts / minute / IP (see ThrottlerModule config).
+  // Applied narrowly here rather than globally so normal API traffic is unthrottled.
   @Post('login')
+  @UseGuards(ThrottlerGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Log in; sets the refresh_token httpOnly cookie',
   })
   @ApiOkResponse({ type: AccessTokenResponseDto })
   @ApiUnauthorizedResponse({ description: 'Invalid credentials' })
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded' })
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response,
@@ -52,6 +58,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @UseGuards(ThrottlerGuard)
   @HttpCode(HttpStatus.OK)
   @ApiCookieAuth(REFRESH_COOKIE)
   @ApiOperation({
@@ -61,6 +68,7 @@ export class AuthController {
   @ApiUnauthorizedResponse({
     description: 'Refresh cookie missing, invalid, or revoked',
   })
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded' })
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
