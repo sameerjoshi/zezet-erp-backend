@@ -5,6 +5,34 @@ Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Nex
 
 ---
 
+## 2026-06-12 · Section 3 — Master data (Fleet/Workforce/Clients) + Pricing 🟡
+**What changed**
+- **Fleet** (`src/fleet/*`, `@Controller('trucks')`, subject `'Truck'`): `POST /trucks` (create `Truck`), `GET /trucks?status=`, `GET /trucks/:id`, `PATCH /trucks/:id`, `PATCH /trucks/:id/deactivate` (soft-delete → `status=inactive`). Reads gated by `read Truck` (ops+finance+admin), mutations by `create`/`update Truck` (ops_manager+admin). `purchasePrice` serialized as a 2-dp string; the **global financial gate strips it for ops** — DTO/serialization don't bypass it.
+- **Workforce** (`src/workforce/*`, `@Controller('workers')`, subject `'Worker'`): same CRUD shape + `PATCH /workers/:id/deactivate` (→ `status=disabled`). Fields: fullName, type(employee|contractor), canDrive, canHelp, status, optional `userId` (validated to an existing User; unique — duplicate link → 400). List filters `?status=&type=`.
+- **Clients** (`src/clients/*`, `@Controller('clients')`, subject `'Client'`): CRUD + deactivate. Fields name, code(unique), billingFrequency, status. List `?status=`.
+- **Pricing** (`src/pricing/*`, subject `'RateCard'`/`'Rate'`): `POST|GET /clients/:clientId/rate-cards`, `GET|PATCH /rate-cards/:cardId`, `PATCH /rate-cards/:cardId/deactivate`, `POST|GET /rate-cards/:cardId/rates`, `PATCH /rates/:rateId`, `PATCH /rates/:rateId/close` (Rate has no status → "delete" = set `effectiveTo=now`). Managing pricing requires `manage RateCard`/`manage Rate` = **finance/admin only**.
+- **Rate lookup**: `GET /rates/lookup?clientId=&label=` → `{ found: boolean, rate: RateResponseDto | null }`. Selection (pure `src/pricing/rate-selection.ts`): among rates on the client's **active** rate cards (optionally label-matched), keep those with `effectiveFrom <= now AND (effectiveTo == null OR effectiveTo >= now)` (inclusive bounds), pick the **most recent `effectiveFrom`**; none → `found:false, rate:null`. Gated by `read Trip` (ops+finance+admin) so ops can prepopulate a trip; the global gate strips clientPrice/driverPay/helperPay for ops, who then type figures manually.
+- **Money serialization**: `src/common/decimal.util.ts#decimalToString` → Prisma Decimal to a fixed 2-dp string (e.g. `"100.00"`). Key names preserved so the financial gate still strips them.
+- **Seed** (`prisma/seed.ts`): idempotent sample data — 3 trucks, 3 workers, 2 clients, 1 rate card ("Standard 2026") with 2 rates for client SELVA. Upsert on unique `code`; find-or-create for workers/rate-cards/rates (no natural unique key).
+- **Tests**: unit `src/pricing/rate-selection.spec.ts` (effective-date picking incl. none-found, overlap→most-recent, inclusive bounds); e2e `test/pricing.e2e-spec.ts` (client→card→rate→lookup returns it; `found:false` for no match; **ops gets money stripped on lookup + truck**, finance/admin see it; ops forbidden from managing pricing). Wired all four modules into `AppModule`.
+
+**Decisions / deviations**
+- **No schema/migration change** — the model already had everything (used existing `status` columns for soft-delete; `Rate` lacks `status`, so `close` ends the effective window instead).
+- **Lookup gated on `read Trip`, not `read Rate`.** The CASL factory grants ops roles no `Rate` read; since the lookup exists to prepopulate a Trip, `read Trip` (which ops_staff/ops_manager/driver hold) is the correct, non-invasive gate. Did NOT modify `CaslAbilityFactory`.
+- **Lookup response shape** is `{ found, rate }` (not bare rate/null) so the frontend has an unambiguous "no rate → type manually" signal. **Money fields are absent (not null) for ops callers** — the frontend must treat missing clientPrice/driverPay/helperPay as "enter manually".
+- **PATCH is partial** via `undefined`-skipping (Prisma ignores undefined); per-service `toData` returns a plain primitive shape, `create` supplies the required field (code/fullName/name) explicitly. Avoided the Prisma create∩update intersection type (it makes required fields mandatory and breaks the partial-update builder).
+- Per-route abilities (not controller-wide) so reads stay open to ops while mutations require manager/finance.
+
+**Gotchas / risks**
+- ⚠️ **Could NOT run `pnpm build|lint|lint:ci|test|test:e2e`, `pnpm db:seed`, or `git`** — Bash exec for `pnpm`/`git`/`cat`/`grep` was denied this whole session (only `ls`/`find` allowed). Code is written + reviewed by hand against the repo's Prettier rules (singleQuote, trailingComma all, printWidth 80) and the type model, but it is **UNVERIFIED by tooling**. Before commit the operator MUST run: `pnpm infra:up && pnpm db:seed && pnpm lint && pnpm lint:ci && pnpm build && pnpm test && pnpm test:e2e` and fix any residual Prettier/line-width nits (`pnpm lint` auto-fixes formatting). I could not commit/push.
+- `prisma/seed.ts` is intentionally **not** covered by `lint`/`lint:ci` (glob is `{src,apps,libs,test}`), so a couple of its sample-data lines exceed 80 cols — fine for ts-node, but don't move that file under the lint glob without reformatting.
+- e2e needs Postgres+Redis up (5434/6381) and self-seeds its actors (admin/finance/ops_staff); it cleans up its client (cascades cards/rates), truck, and users.
+
+**Next**
+- Section 4 — Operations (DailyTruckLog + the Trip): the Trip create should call the rate lookup to prepopulate billAmount/driverPay/helperPay (all editable), set `rateId`, and project money away for ops at the query layer in addition to the global gate.
+
+---
+
 ## 2026-06-12 · Section 2 — RBAC + Audit ✅
 **What changed**
 - **CASL ability factory** (`src/rbac/casl-ability.factory.ts`): `CaslAbilityFactory.createForUser(AuthUser?)` builds an `AppAbility` (`MongoAbility<[Action, AppSubject]>`) per request. Subjects are strings (Prisma exposes interfaces, not classes) plus two virtual subjects — `Financial` (money data) and `Report`. Role map: **admin** = manage all; **finance** = read all + read/manage `Financial`/Reports/Rates/Trips; **investor** = read-only `Report`+`Financial`; **ops_manager/ops_staff/driver** = operational reads/writes only. HARD RULE encoded: an ops role with no financial-clearance role gets explicit `cannot(read, Financial)` + `cannot(read, Report)`. The `cannot` is guarded so a **finance+ops** user keeps access (CASL: later `cannot` overrides earlier `can`).

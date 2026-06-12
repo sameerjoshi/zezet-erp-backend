@@ -5,10 +5,14 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
+import { ClientsModule } from './clients/clients.module';
+import { FleetModule } from './fleet/fleet.module';
+import { PricingModule } from './pricing/pricing.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RbacModule } from './rbac/rbac.module';
 import { RedisModule } from './redis/redis.module';
 import { UsersModule } from './users/users.module';
+import { WorkforceModule } from './workforce/workforce.module';
 
 @Module({
   imports: [
@@ -24,8 +28,13 @@ import { UsersModule } from './users/users.module';
     RbacModule,
     UsersModule,
     AuditModule,
-    // Remaining domain modules (Fleet, Workforce, Clients, Pricing,
-    // Operations, Reporting) are added during Phase 0–1 dev.
+    // Section 3 — master data (Fleet/Workforce/Clients) + Pricing (rate cards,
+    // rates, effective-rate lookup for trip prepopulation).
+    FleetModule,
+    WorkforceModule,
+    ClientsModule,
+    PricingModule,
+    // Remaining domain modules (Operations, Reporting) are added later.
   ],
   controllers: [AppController],
   providers: [AppService],
