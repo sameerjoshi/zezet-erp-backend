@@ -5,6 +5,31 @@ Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Nex
 
 ---
 
+## 2026-06-12 · Section 2 — RBAC + Audit ✅
+**What changed**
+- **CASL ability factory** (`src/rbac/casl-ability.factory.ts`): `CaslAbilityFactory.createForUser(AuthUser?)` builds an `AppAbility` (`MongoAbility<[Action, AppSubject]>`) per request. Subjects are strings (Prisma exposes interfaces, not classes) plus two virtual subjects — `Financial` (money data) and `Report`. Role map: **admin** = manage all; **finance** = read all + read/manage `Financial`/Reports/Rates/Trips; **investor** = read-only `Report`+`Financial`; **ops_manager/ops_staff/driver** = operational reads/writes only. HARD RULE encoded: an ops role with no financial-clearance role gets explicit `cannot(read, Financial)` + `cannot(read, Report)`. The `cannot` is guarded so a **finance+ops** user keeps access (CASL: later `cannot` overrides earlier `can`).
+- **PoliciesGuard + decorators** (`policies.guard.ts`, `policies.decorator.ts`): `@CheckPolicies((a)=>…)` and the shorthand `@RequireAbility(action, subject)` declare required abilities; `PoliciesGuard` reads them via `Reflector` and `throw ForbiddenException` on fail. Used as `@UseGuards(JwtAuthGuard, PoliciesGuard)` (must follow JwtAuthGuard so `req.user` is set). Provided + exported by the **global `RbacModule`**.
+- **Field-level financial gate** (`financial-fields.interceptor.ts`, global via `APP_INTERCEPTOR`): for any user who **cannot** read `Financial`, recursively strips money keys (`FINANCIAL_FIELDS`: billAmount, driverPay, helperPay, clientPrice, purchasePrice, fuelCost) from the response at every depth. Pure stripper, only recurses plain objects/arrays (Date/Decimal instances left intact). Users who **can** read financial data short-circuit (zero cost). Defence-in-depth for money endpoints that don't exist yet. Unit-tested: ops stripped, finance/admin/investor intact, finance+ops intact, anon stripped.
+- **Users/Roles admin endpoints** (`src/users/*`, admin-only via `@RequireAbility(Manage, 'User'|'Role')`): `POST /users` (generated username + argon2 + roles), `GET /users` (never returns passwordHash), `PATCH /users/:id/roles`, `GET /roles`. **Generated username** (`username.util.ts`): firstInitial+lastName, lowercased, non-alphanumerics stripped (`Mario Gomez`→`mgomez`); smallest numeric suffix on collision (`mgomez2`…). This closes Section 1 §item 1.
+- **Audit interceptor** (`audit.interceptor.ts`, global): on every **successful** POST/PATCH/PUT/DELETE writes an `AuditLog` row (actorUserId, entity, entityId, action, after). Fire-and-forget — write failures are logged, never thrown. `@AuditEntity('User')` names the entity (else derived from the URL). Secrets/tokens (`passwordHash`/`accessToken`/…) are stripped from the stored `after`.
+- Wired `RbacModule`, `UsersModule`, `AuditModule` into `AppModule`. Added unit specs (financial gate, ability factory, username util) + `test/users.e2e-spec.ts` (admin CRUD + generated-username collision + ops 403 + audit-row written).
+
+**Decisions / deviations**
+- Admin endpoints require **`manage`** (not `read`) so finance's broad `read all` does NOT reach `/users` or `/roles` — keeps them genuinely admin-only.
+- `fullName` on `CreateUserDto` is **input-only** (used to derive the username); `User` has no name column, so it is not persisted. Noted for the frontend.
+- Audit also fires for `/auth` POSTs (login/refresh/logout) per "every mutating request"; tokens are filtered out of the stored payload.
+- Username generation has a tiny read-then-write race; create is wrapped in a P2002 retry loop (5 attempts) as a backstop.
+
+**Gotchas / risks**
+- **Could NOT run `pnpm build|lint:ci|test|test:e2e` or `git commit/push`** — Bash/MCP execution was denied for the whole session. Code was written + hand-formatted to Prettier rules, but **run `pnpm lint` (auto-fix) then `pnpm lint:ci && pnpm build && pnpm test && pnpm test:e2e` before committing**. e2e needs infra up (5434/6381) and seeded roles.
+- The financial gate deep-clones responses only for non-financial users (ops); acceptable, but very large payloads pay a clone cost.
+- e2e self-seeds its `e2e_admin`/`e2e_ops` users and cleans `mgomez*` rows; assumes Postgres+Redis are up.
+
+**Next**
+- Section 3 — master data (Fleet/Workforce/Clients) + Pricing, then Operations (the Trip). Money endpoints there must rely on the global financial gate AND project money away at the query layer for ops roles.
+
+---
+
 ## 2026-06-12 · Section 1 — Refactor refresh → httpOnly cookie (ADR 0001) ✅
 **What changed**
 - Refresh token now rides in an **httpOnly cookie** `refresh_token` (`Path=/auth`, `SameSite=Lax`, `Secure` in prod only, `Max-Age` = refresh TTL), never the body. Login/refresh set it; **refresh reads it from the cookie** (no request body) + rotates + sets the new cookie; **logout clears it** + revokes in Redis. Access token still returned in the body.
