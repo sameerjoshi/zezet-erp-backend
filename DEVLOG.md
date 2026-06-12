@@ -1,8 +1,7 @@
 # DEVLOG — Zezet ERP Backend
 
-Handoff log. Newest entry on top. One entry per task / notable change.
-This is what the planning/review session reads to see where the backend is and what's next.
-See `CLAUDE.md` → "Working rhythm & handoff" for the format. Status of items lives in `TASKS.md`.
+Dev log. Newest entry on top. One entry per task / notable change.
+Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Next.**
 
 ---
 
