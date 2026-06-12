@@ -25,6 +25,16 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
       # CI-scoped connection — NOT the local 5434 remap. Driven entirely by env.
       DATABASE_URL: postgresql://zezet:zezet@localhost:5432/zezet?schema=public

@@ -6,6 +6,31 @@ See `CLAUDE.md` → "Working rhythm & handoff" for the format. Status of items l
 
 ---
 
+## 2026-06-12 · Section 1 — Authentication (JWT access+refresh, revocable) 🟡
+**What changed**
+- New **AuthModule**: `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`. argon2 password verify; access JWT (roles in payload) + refresh JWT; Swagger-documented DTOs/responses so the OpenAPI contract stays accurate.
+- New **RedisModule/RedisService** (ioredis, global). Refresh tokens are **revocable**: Redis holds the current refresh `jti` per user (`refresh:{userId}`, TTL = refresh lifetime). Refresh **rotates** the jti; logout deletes the key.
+- Passport **JwtStrategy** + `JwtAuthGuard` + `@CurrentUser()` decorator guard `me`/`logout`.
+- Wired `RedisModule` + `AuthModule` into `app.module.ts`.
+- **CI:** added a **redis:7 service** (the Auth task that needed it, as flagged). Pipeline unchanged otherwise.
+- **e2e** (`test/auth.e2e-spec.ts`): self-seeding user → login → me (asserts no `passwordHash` leak) → unauth 401 → refresh → old-token-rejected (rotation) → logout → post-logout refresh 401. Added `forceExit` to the e2e jest config (Redis/Prisma keep handles open).
+
+**Decisions / deviations**
+- **One active refresh token per user** (single session). Simplest fully-revocable design, no Redis SCAN. Re-login/refresh supersedes the prior session. Multi-device sessions are a later concern — note if the client wants concurrent logins.
+- Secrets/TTLs passed per sign/verify from `ConfigService` (`JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET`/`JWT_*_TTL`); `JwtModule.register({})` holds no global secret.
+- Login failures return a **single generic "Invalid credentials"** (missing/disabled/bad-password indistinguishable) — no username enumeration.
+- **Item 1 left unchecked** on purpose: argon2 + optional email/phone are in place, but **generated usernames** belongs to user-creation (Section 2 — no create-user endpoint yet). Honest partial.
+
+**Gotchas / risks**
+- No config schema validation yet — a missing `JWT_*` env fails lazily at first sign/verify, not at boot. Consider a Joi/Zod env schema before deploy.
+- Refresh rotation is **last-write-wins**: two near-simultaneous refreshes → one wins, the other 401s. Fine for this app; revisit if concurrent clients appear.
+- e2e needs **both** Postgres and Redis up (CI has both; locally 5434/6381).
+
+**Next**
+- Section 2 — **RBAC + Audit**: CASL abilities per role; Users/Roles admin endpoints (this is where **generated usernames** lands → then tick §1 item 1); **field-level financial gating** (ops roles never receive money fields — hard requirement); audit-log interceptor.
+
+---
+
 ## 2026-06-12 · Task 0 — CI (GitHub Actions) ✅
 **What changed**
 - Added `.github/workflows/ci.yml`: on push + PR, one `build-test` job (ubuntu, Node 22, pnpm 11) with a **Postgres 16 service on 5432**. Steps: install → `db:generate` → `lint:ci` → `build` → `prisma migrate deploy` → unit tests → e2e tests.

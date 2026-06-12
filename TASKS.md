@@ -14,11 +14,13 @@ Status: ⬜ todo · 🟡 in progress · ✅ done · ⛔ blocked.
 - [x] Seed script: roles (`admin, finance, ops_manager, ops_staff, driver, investor`) + a sample admin user
 - [x] CI: lint / typecheck / test on push
 
-## 1 · Authentication  ⬜
+## 1 · Authentication  🟡
 - [ ] Password hashing (argon2); **generated usernames**; email/phone optional
-- [ ] JWT **access + refresh**; refresh stored in **Redis** (revocable)
-- [ ] `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `GET /auth/me`
-- [ ] e2e tests on the auth flow
+      <!-- argon2 verify on login ✅ + email/phone already optional in schema ✅;
+           username *generation* deferred to §2 (no create-user endpoint exists yet). -->
+- [x] JWT **access + refresh**; refresh stored in **Redis** (revocable)
+- [x] `POST /auth/login` · `POST /auth/refresh` · `POST /auth/logout` · `GET /auth/me`
+- [x] e2e tests on the auth flow
 
 ## 2 · RBAC + Audit  ⬜
 - [ ] **CASL** abilities keyed off roles; Users/Roles endpoints (admin)
