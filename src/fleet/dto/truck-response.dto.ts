@@ -26,6 +26,13 @@ export class TruckResponseDto {
   @ApiProperty({
     required: false,
     nullable: true,
+    description: 'Date ready to drive; counts toward operational % from here.',
+  })
+  inServiceDate!: Date | null;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
     description: 'Financial — absent in responses to ops roles.',
   })
   purchasePrice!: string | null;

@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { OperStatus } from '@prisma/client';
 
 // Per-truck log status for a date. `status`:
 //   none      — no log exists for the truck that day
@@ -15,6 +16,15 @@ export class TruckDaySummaryDto {
 
   @ApiProperty({ enum: ['none', 'draft', 'confirmed'] })
   status!: TruckDaySummaryStatus;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    enum: OperStatus,
+    description:
+      'Operational status that day: operating / no_clients / broken.',
+  })
+  operStatus!: OperStatus | null;
 
   @ApiProperty({
     required: false,

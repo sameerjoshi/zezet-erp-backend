@@ -18,6 +18,7 @@ interface TruckData {
   year?: number;
   sizeFt?: number;
   purchaseDate?: Date;
+  inServiceDate?: Date;
   purchasePrice?: number;
   odometerStart?: number;
   status?: TruckStatus;
@@ -100,6 +101,9 @@ export class FleetService {
       year: dto.year,
       sizeFt: dto.sizeFt,
       purchaseDate: dto.purchaseDate ? new Date(dto.purchaseDate) : undefined,
+      inServiceDate: dto.inServiceDate
+        ? new Date(dto.inServiceDate)
+        : undefined,
       purchasePrice: dto.purchasePrice,
       odometerStart: dto.odometerStart,
       status: dto.status,
@@ -114,6 +118,7 @@ export class FleetService {
       year: truck.year,
       sizeFt: truck.sizeFt,
       purchaseDate: truck.purchaseDate,
+      inServiceDate: truck.inServiceDate,
       purchasePrice: decimalToString(truck.purchasePrice),
       odometerStart: truck.odometerStart,
       status: truck.status,

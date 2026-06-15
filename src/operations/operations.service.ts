@@ -63,6 +63,7 @@ export class OperationsService {
         data: {
           date,
           truckId: dto.truckId,
+          operStatus: dto.operStatus,
           fuelCost: dto.fuelCost,
           odometerStart: dto.odometerStart,
           odometerEnd: dto.odometerEnd,
@@ -116,6 +117,7 @@ export class OperationsService {
     const log = await this.prisma.dailyTruckLog.update({
       where: { id },
       data: {
+        operStatus: dto.operStatus,
         fuelCost: dto.fuelCost,
         odometerStart: dto.odometerStart,
         odometerEnd: dto.odometerEnd,
@@ -285,6 +287,7 @@ export class OperationsService {
         id: true,
         truckId: true,
         status: true,
+        operStatus: true,
         _count: { select: { trips: true } },
       },
     });
@@ -299,6 +302,7 @@ export class OperationsService {
         truckId: truck.id,
         truckCode: truck.code,
         status,
+        operStatus: log?.operStatus ?? null,
         logId: log?.id ?? null,
         tripCount: log?._count.trips ?? 0,
       };
@@ -418,6 +422,7 @@ export class OperationsService {
       id: log.id,
       date: log.date,
       truckId: log.truckId,
+      operStatus: log.operStatus,
       fuelCost: decimalToString(log.fuelCost),
       odometerStart: log.odometerStart,
       odometerEnd: log.odometerEnd,

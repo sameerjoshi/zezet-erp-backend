@@ -93,6 +93,10 @@ model Truck {
   year          Int?
   sizeFt        Int?
   purchaseDate  DateTime?
+  // Date the truck is actually ready/legal to drive (paperwork + initial repairs
+  // done). A truck only counts toward operational % from this date — a just-bought,
+  // not-yet-drivable truck must not deflate the percentage.
+  inServiceDate DateTime?       @db.Date
   purchasePrice Decimal?        @db.Decimal(12, 2)
   odometerStart Int?
   status        TruckStatus     @default(active)
@@ -146,11 +150,22 @@ enum LogStatus {
   confirmed
 }
 
+// What the truck did that day (set by the field chief for every truck he visits,
+// including idle ones). Distinct from LogStatus (the entry workflow): a day can be
+// confirmed AND broken. Null = not recorded / not expected to run (e.g. a Sunday a
+// truck legitimately rests) — these days are excluded from the operational %.
+enum OperStatus {
+  operating // drove (has trips/route/fuel/km)
+  no_clients // idle for lack of work (sales)
+  broken // down for repair (mechanics)
+}
+
 model DailyTruckLog {
   id            String    @id @default(cuid())
   date          DateTime  @db.Date
   truck         Truck     @relation(fields: [truckId], references: [id])
   truckId       String
+  operStatus    OperStatus?
   fuelCost      Decimal?  @db.Decimal(12, 2)
   odometerStart Int?
   odometerEnd   Int?

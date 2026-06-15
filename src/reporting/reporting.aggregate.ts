@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { OperStatus, Prisma } from '@prisma/client';
 
 // Pure aggregation core for the reporting module. All math lives here (no I/O)
 // so it is unit-testable in isolation: the service fetches rows, these functions
@@ -190,4 +190,95 @@ export function aggregateClientBillables(
         Number(b.billAmount) - Number(a.billAmount) ||
         a.clientName.localeCompare(b.clientName),
     );
+}
+
+// One recorded daily log reduced to what the operational report needs. Only logs
+// with a non-null operStatus are passed in: a null status means "not recorded /
+// not expected" and is intentionally excluded from the percentage (Xavier's fix
+// for Sundays and not-yet-in-service trucks deflating the number).
+export interface OperationalRow {
+  date: string;
+  operStatus: OperStatus;
+}
+
+export interface OperationalBucket {
+  operating: number;
+  noClients: number;
+  broken: number;
+  recorded: number; // operating + noClients + broken
+  // operating / recorded, 0..1 rounded to 4 dp (0 when nothing recorded).
+  operatingPct: number;
+}
+
+export interface OperationalDay extends OperationalBucket {
+  date: string;
+}
+
+export interface OperationalAggregate {
+  totals: OperationalBucket;
+  perDay: OperationalDay[];
+}
+
+function pct(operating: number, recorded: number): number {
+  return recorded > 0 ? Number((operating / recorded).toFixed(4)) : 0;
+}
+
+function emptyBucket(): {
+  operating: number;
+  noClients: number;
+  broken: number;
+} {
+  return { operating: 0, noClients: 0, broken: 0 };
+}
+
+function add(
+  b: { operating: number; noClients: number; broken: number },
+  s: OperStatus,
+): void {
+  if (s === OperStatus.operating) b.operating += 1;
+  else if (s === OperStatus.no_clients) b.noClients += 1;
+  else if (s === OperStatus.broken) b.broken += 1;
+}
+
+// Operational percentage per day and overall: of the trucks that had a recorded
+// status, how many were operating. `days` is the inclusive YYYY-MM-DD list so
+// quiet days still appear (with recorded=0, operatingPct=0).
+export function aggregateOperational(
+  rows: OperationalRow[],
+  days: string[],
+): OperationalAggregate {
+  const byDay = new Map<string, ReturnType<typeof emptyBucket>>();
+  const totals = emptyBucket();
+
+  for (const row of rows) {
+    const day = byDay.get(row.date) ?? emptyBucket();
+    add(day, row.operStatus);
+    byDay.set(row.date, day);
+    add(totals, row.operStatus);
+  }
+
+  const perDay = days.map((date) => {
+    const b = byDay.get(date) ?? emptyBucket();
+    const recorded = b.operating + b.noClients + b.broken;
+    return {
+      date,
+      operating: b.operating,
+      noClients: b.noClients,
+      broken: b.broken,
+      recorded,
+      operatingPct: pct(b.operating, recorded),
+    };
+  });
+
+  const recorded = totals.operating + totals.noClients + totals.broken;
+  return {
+    totals: {
+      operating: totals.operating,
+      noClients: totals.noClients,
+      broken: totals.broken,
+      recorded,
+      operatingPct: pct(totals.operating, recorded),
+    },
+    perDay,
+  };
 }

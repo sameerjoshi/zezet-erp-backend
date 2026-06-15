@@ -48,6 +48,18 @@ export class CreateTruckDto {
 
   @ApiProperty({
     required: false,
+    example: '2019-04-01',
+    format: 'date',
+    description:
+      'Date the truck is ready/legal to drive. Counts toward operational % ' +
+      'only from this date.',
+  })
+  @IsOptional()
+  @IsDateString()
+  inServiceDate?: string;
+
+  @ApiProperty({
+    required: false,
     example: 45000,
     description: 'Acquisition cost (financial — stripped for ops roles).',
   })

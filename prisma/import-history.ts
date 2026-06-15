@@ -9,6 +9,7 @@
 //   npx ts-node prisma/import-history.ts prisma/.history-import.json
 import {
   LogStatus,
+  OperStatus,
   Prisma,
   PrismaClient,
   TruckStatus,
@@ -146,6 +147,8 @@ async function main(): Promise<void> {
         truckId,
         fuelCost: l.fuelCost ?? null,
         status: LogStatus.confirmed,
+        // Historical logs all have trips → they were operating days.
+        operStatus: OperStatus.operating,
       },
     });
     logN++;

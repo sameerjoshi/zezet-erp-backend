@@ -2,15 +2,18 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { TruckStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClientBillablesReportResponseDto } from './dto/client-billables-report-response.dto';
+import { OperationalReportResponseDto } from './dto/operational-report-response.dto';
 import { ReportRangeQueryDto } from './dto/report-range-query.dto';
 import { TripsReportResponseDto } from './dto/trips-report-response.dto';
 import { UtilizationReportResponseDto } from './dto/utilization-report-response.dto';
 import { WorkerPayReportResponseDto } from './dto/worker-pay-report-response.dto';
 import {
   aggregateClientBillables,
+  aggregateOperational,
   aggregateTrips,
   aggregateUtilization,
   aggregateWorkerPay,
+  OperationalRow,
   ReportTripRow,
 } from './reporting.aggregate';
 
@@ -84,7 +87,35 @@ export class ReportingService {
     };
   }
 
+  async operational(
+    query: ReportRangeQueryDto,
+  ): Promise<OperationalReportResponseDto> {
+    const range = this.resolveRange(query);
+    const rows = await this.fetchOperationalRows(range);
+    const days = enumerateDays(range.from, range.to);
+    const { totals, perDay } = aggregateOperational(rows, days);
+    return { from: range.fromYmd, to: range.toYmd, totals, perDay };
+  }
+
   // --- helpers ---
+
+  // Recorded daily logs in the range (operStatus set). Logs with a null status
+  // are excluded so unrecorded/not-expected days never count against the %.
+  private async fetchOperationalRows(
+    range: ResolvedRange,
+  ): Promise<OperationalRow[]> {
+    const logs = await this.prisma.dailyTruckLog.findMany({
+      where: {
+        date: { gte: range.from, lte: range.to },
+        operStatus: { not: null },
+      },
+      select: { date: true, operStatus: true },
+    });
+    return logs.map((l) => ({
+      date: toYmd(l.date),
+      operStatus: l.operStatus!,
+    }));
+  }
 
   // Pull every trip in the range flattened with the reference data the reports
   // need. Trips are dated through their parent DailyTruckLog.

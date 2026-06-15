@@ -11,6 +11,7 @@ import { Action } from '../rbac/casl-ability.factory';
 import { RequireAbility } from '../rbac/policies.decorator';
 import { PoliciesGuard } from '../rbac/policies.guard';
 import { ClientBillablesReportResponseDto } from './dto/client-billables-report-response.dto';
+import { OperationalReportResponseDto } from './dto/operational-report-response.dto';
 import { ReportRangeQueryDto } from './dto/report-range-query.dto';
 import { TripsReportResponseDto } from './dto/trips-report-response.dto';
 import { UtilizationReportResponseDto } from './dto/utilization-report-response.dto';
@@ -46,6 +47,18 @@ export class ReportingController {
     @Query() query: ReportRangeQueryDto,
   ): Promise<UtilizationReportResponseDto> {
     return this.reporting.utilization(query);
+  }
+
+  @Get('operational')
+  @ApiOperation({
+    summary:
+      'Operating vs idle (no clients) vs broken per day, with operating %',
+  })
+  @ApiOkResponse({ type: OperationalReportResponseDto })
+  operational(
+    @Query() query: ReportRangeQueryDto,
+  ): Promise<OperationalReportResponseDto> {
+    return this.reporting.operational(query);
   }
 
   @Get('worker-pay')

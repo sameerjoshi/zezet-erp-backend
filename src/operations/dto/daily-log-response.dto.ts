@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { LogStatus } from '@prisma/client';
+import { LogStatus, OperStatus } from '@prisma/client';
 
 // Summed money for a log. The three keys are financial — the global gate strips
 // them for ops roles, who still receive `tripCount`.
@@ -44,6 +44,14 @@ export class DailyLogResponseDto {
 
   @ApiProperty({ enum: LogStatus })
   status!: LogStatus;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    enum: OperStatus,
+    description: 'Operational status: operating / no_clients / broken / null.',
+  })
+  operStatus!: OperStatus | null;
 
   @ApiProperty({ required: false, nullable: true })
   enteredById!: string | null;

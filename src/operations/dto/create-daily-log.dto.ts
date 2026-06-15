@@ -1,6 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { OperStatus } from '@prisma/client';
 import {
   IsDateString,
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -20,6 +22,17 @@ export class CreateDailyLogDto {
   @ApiProperty({ description: 'Truck this log belongs to.' })
   @IsString()
   truckId!: string;
+
+  @ApiProperty({
+    required: false,
+    enum: OperStatus,
+    description:
+      'What the truck did that day: operating / no_clients / broken. ' +
+      'Omit when not yet recorded.',
+  })
+  @IsOptional()
+  @IsEnum(OperStatus)
+  operStatus?: OperStatus;
 
   @ApiProperty({
     required: false,
