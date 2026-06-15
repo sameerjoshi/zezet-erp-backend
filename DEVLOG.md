@@ -5,6 +5,24 @@ Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Nex
 
 ---
 
+## 2026-06-15 · Historical data import from legacy workbook ✅
+**What changed**
+- **`tools/parse-history-xlsx.py`** — parses `Camion_con_Jorge.xlsx` into clean JSON. The `Tournos` sheet is the only per-trip source (pivoted: trucks across columns, 2 cols each; per-date 14-row blocks; up to 3 trips/truck/day as `Tournos/Conductor/Ayudante 1..3`; fuel on `Combustible`). `Inventarios` → trucks. Emits trucks/clients/workers/logs(+trips) + a `meta` block with per-month trip counts for cross-check.
+- **`prisma/import-history.ts`** — loads that JSON via Prisma. Masters upsert by natural key (truck.code, client.code) or find-or-create by name (workers, single interchangeable pool canDrive+canHelp). Operational data is **wiped within the imported date range then reinserted** → idempotent. Historical logs marked `confirmed`.
+
+**Decisions/deviations**
+- True per-trip migration only possible **2026-01-26 → 2026-06-08** (`Tournos`); everything earlier is dollar aggregates (`Data2025/2026`, `Analisis`) → not imported as trips. Recon written to hub `transcripts/_EXCEL_MIGRATION_RECON.md`.
+- Odometer not recorded per day in the sheet → `DailyTruckLog.odometer*` left null; truck `odometerStart` seeded from Inventarios. Fuel is per-truck-day → on the log, not the trip (matches schema).
+- Parsed JSON holds **real client financials → gitignored** (`prisma/.history-import.json`), generated locally, scp'd to the host, run there. Never committed.
+
+**Result (demo DB):** 39 trucks, 8 clients (TLA+Grupo Rey ≈ 99% of volume), 155 workers, 2,152 logs, 2,283 trips. May billables $142,987.63 vs Analisis $143,499 (~0.4%).
+
+**Gotchas/risks**
+- Parser trip counts run ~7-9% above the `Analisis` "Tournos total" formula (likely a stricter definition there); shape matches. Acceptable for the demo, revisit if exact reconciliation is required for go-live.
+- Re-running the importer re-wipes 2026-01-26..06-08 logs (incl. any UI-entered test trips in that window).
+
+**Next:** decide pricing direction (Xavier Q1) before building rate cards from history; consider importing 2025/early-Jan aggregate $ as a separate non-trip history if the dashboard needs deeper trend lines.
+
 ## 2026-06-12 · Section 5 — Reporting + Auth hardening ✅
 **What changed**
 - **`src/reporting/*`** — new `ReportingController` (`@Controller('reports')`, `@UseGuards(JwtAuthGuard, PoliciesGuard)`, controller-level `@RequireAbility(Read, 'Report')`) + `ReportingService`. All math is in pure `src/reporting/reporting.aggregate.ts` (no I/O → unit-testable); the service fetches trip rows (trips joined through `dailyLog.date`/`truck`/`client`/`driver`/`helper`) and folds them. Endpoints take an **inclusive** `?from=&to=` (ISO `YYYY-MM-DD`):
