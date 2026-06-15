@@ -5,6 +5,19 @@ Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Nex
 
 ---
 
+## 2026-06-15 · Operational status + in-service date + operating % ✅
+**What changed**
+- Schema: `OperStatus { operating | no_clients | broken }` enum + nullable `DailyTruckLog.operStatus`; `Truck.inServiceDate @db.Date`. Hand-written migration `20260615120000_operational_status` (applied via `migrate deploy`) backfills trip-bearing logs to `operating` and seeds `inServiceDate` from `purchaseDate`.
+- DTOs/service: `operStatus` on create/update daily-log + responses + the dashboard summary rows; `inServiceDate` on truck create/update/response.
+- Reporting: `aggregateOperational` (pure) + `GET /reports/operational` → per-day & total operating/no_clients/broken counts and `operatingPct = operating / recorded` (recorded = non-null statuses only).
+- import-history.ts now stamps imported logs `operating`.
+
+**Decisions:** ADR 0003. operStatus is orthogonal to LogStatus (a day can be confirmed AND broken). Null = not expected → excluded from %, which is how Xavier's sheet leaves Sundays blank.
+
+**Gotchas:** historical data has only operating statuses, so past operating % reads ~100% until idle/broken are recorded going forward. Migration was hand-authored (no local shadow DB) — kept the SQL minimal/idempotent-safe.
+
+**Next:** sales-vs-mechanics accountability reports; optional per-truck operational history endpoint.
+
 ## 2026-06-15 · Historical data import from legacy workbook ✅
 **What changed**
 - **`tools/parse-history-xlsx.py`** — parses `Camion_con_Jorge.xlsx` into clean JSON. The `Tournos` sheet is the only per-trip source (pivoted: trucks across columns, 2 cols each; per-date 14-row blocks; up to 3 trips/truck/day as `Tournos/Conductor/Ayudante 1..3`; fuel on `Combustible`). `Inventarios` → trucks. Emits trucks/clients/workers/logs(+trips) + a `meta` block with per-month trip counts for cross-check.
