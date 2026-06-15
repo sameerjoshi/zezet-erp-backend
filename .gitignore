@@ -29,3 +29,6 @@ prisma/*.db-journal
 .idea/
 .vscode/
 *.swp
+
+# Local historical-import data (real client financials — never commit)
+prisma/.history-import.json
