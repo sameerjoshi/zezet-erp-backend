@@ -192,9 +192,12 @@ def parse_tournos(ws, truck_by_num):
             if numkey == "0":  # Camion#0 is not a real truck
                 continue
             val_col = label_col + 1
+            # Fuel (Combustible) is recorded in the truck's LABEL column, not the
+            # value column where trip charges/pays go (verified: 2098 cells at the
+            # label col, 0 at the value col).
             fuel = None
             if "Combustible" in rws:
-                fuel = _num_str(cell(rws["Combustible"], val_col))
+                fuel = _num_str(cell(rws["Combustible"], label_col))
             trips = []
             for slot, (cl_lbl, dr_lbl, hp_lbl) in slot_rows.items():
                 crow = rws.get(cl_lbl)
