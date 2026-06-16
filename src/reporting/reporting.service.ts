@@ -1,16 +1,18 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { TruckStatus } from '@prisma/client';
+import { Prisma, TruckStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClientBillablesReportResponseDto } from './dto/client-billables-report-response.dto';
 import { OperationalReportResponseDto } from './dto/operational-report-response.dto';
 import { ReportRangeQueryDto } from './dto/report-range-query.dto';
 import { TripsReportResponseDto } from './dto/trips-report-response.dto';
+import { TruckPnlResponseDto } from './dto/truck-pnl-response.dto';
 import { UtilizationReportResponseDto } from './dto/utilization-report-response.dto';
 import { WorkerPayReportResponseDto } from './dto/worker-pay-report-response.dto';
 import {
   aggregateClientBillables,
   aggregateOperational,
   aggregateTrips,
+  aggregateTruckPnl,
   aggregateUtilization,
   aggregateWorkerPay,
   OperationalRow,
@@ -97,6 +99,42 @@ export class ReportingService {
     return { from: range.fromYmd, to: range.toYmd, totals, perDay };
   }
 
+  async truckPnl(query: ReportRangeQueryDto): Promise<TruckPnlResponseDto> {
+    const range = this.resolveRange(query);
+    const [rows, logs, costs, trucks] = await Promise.all([
+      this.fetchTripRows(range),
+      this.prisma.dailyTruckLog.findMany({
+        where: {
+          date: { gte: range.from, lte: range.to },
+          fuelCost: { not: null },
+        },
+        select: { truckId: true, fuelCost: true },
+      }),
+      this.prisma.truckCost.findMany({
+        where: { date: { gte: range.from, lte: range.to } },
+        select: { truckId: true, amount: true },
+      }),
+      this.prisma.truck.findMany({ select: { id: true, code: true } }),
+    ]);
+
+    const fuelByTruck = sumByTruck(logs.map((l) => [l.truckId, l.fuelCost!]));
+    const costByTruck = sumByTruck(costs.map((c) => [c.truckId, c.amount]));
+    const codeById = new Map(trucks.map((t) => [t.id, t.code]));
+    const { perTruck, totals } = aggregateTruckPnl(
+      rows.map((r) => ({
+        truckId: r.truckId,
+        truckCode: r.truckCode,
+        billAmount: r.billAmount,
+        driverPay: r.driverPay,
+        helperPay: r.helperPay,
+      })),
+      fuelByTruck,
+      costByTruck,
+      codeById,
+    );
+    return { from: range.fromYmd, to: range.toYmd, perTruck, totals };
+  }
+
   // --- helpers ---
 
   // Recorded daily logs in the range (operStatus set). Logs with a null status
@@ -181,6 +219,17 @@ export class ReportingService {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Sum Decimal amounts per truck id into a Map.
+function sumByTruck(
+  pairs: [string, Prisma.Decimal][],
+): Map<string, Prisma.Decimal> {
+  const m = new Map<string, Prisma.Decimal>();
+  for (const [id, amt] of pairs) {
+    m.set(id, (m.get(id) ?? new Prisma.Decimal(0)).add(amt));
+  }
+  return m;
+}
 
 // Normalize an ISO date(-time) string to UTC midnight so it deterministically
 // matches a Postgres `@db.Date` column (mirrors OperationsService.toDateOnly).

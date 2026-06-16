@@ -101,6 +101,7 @@ model Truck {
   odometerStart Int?
   status        TruckStatus     @default(active)
   logs          DailyTruckLog[]
+  costs         TruckCost[]
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 }
@@ -313,4 +314,33 @@ model PayrollLine {
   @@index([runId])
   @@index([tripId])
   @@index([workerId])
+}
+
+// ---------- Costs / P&L ----------
+// Per-truck "other" costs (maintenance, tolls, etc.). Fuel + driver/helper pay are
+// NOT here — they live on logs/trips; the P&L report pulls them from there. ADR 0006.
+
+enum CostCategory {
+  maintenance
+  toll
+  insurance
+  tax
+  repair
+  other
+}
+
+model TruckCost {
+  id          String       @id @default(cuid())
+  truck       Truck        @relation(fields: [truckId], references: [id])
+  truckId     String
+  date        DateTime     @db.Date
+  category    CostCategory
+  amount      Decimal      @db.Decimal(12, 2)
+  note        String?
+  createdById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([truckId, date])
+  @@index([date])
 }

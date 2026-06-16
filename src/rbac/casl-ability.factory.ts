@@ -33,6 +33,7 @@ export type AppSubject =
   | 'Trip'
   | 'Invoice'
   | 'Payroll'
+  | 'Cost'
   | 'Report'
   | 'Financial'
   | 'all';
@@ -80,14 +81,16 @@ export class CaslAbilityFactory {
         'Trip',
         'Invoice',
         'Payroll',
+        'Cost',
       ]);
     }
 
-    // investor — read-only on reports + invoices + payroll; needs their figures.
+    // investor — read-only on reports + invoices + payroll + costs; needs figures.
     if (roles.includes(RoleKey.investor)) {
       can(Action.Read, 'Report');
       can(Action.Read, 'Invoice');
       can(Action.Read, 'Payroll');
+      can(Action.Read, 'Cost');
       can(Action.Read, 'Financial');
     }
 

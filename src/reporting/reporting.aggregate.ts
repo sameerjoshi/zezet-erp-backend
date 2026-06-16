@@ -282,3 +282,127 @@ export function aggregateOperational(
     perDay,
   };
 }
+
+// Per-truck profit & loss (ADR 0006). Revenue + pay come from trips; fuel and
+// other costs are pre-summed per truck by the service. profit = revenue − fuel −
+// driverPay − helperPay − costs (cash costs; amortization excluded for now).
+export interface PnlTripRow {
+  truckId: string;
+  truckCode: string;
+  billAmount: Prisma.Decimal;
+  driverPay: Prisma.Decimal;
+  helperPay: Prisma.Decimal;
+}
+
+export interface TruckPnlRow {
+  truckId: string;
+  truckCode: string;
+  revenue: string;
+  fuel: string;
+  driverPay: string;
+  helperPay: string;
+  costs: string;
+  profit: string;
+}
+
+export interface TruckPnlTotals {
+  revenue: string;
+  fuel: string;
+  driverPay: string;
+  helperPay: string;
+  costs: string;
+  profit: string;
+}
+
+export interface TruckPnlResult {
+  perTruck: TruckPnlRow[];
+  totals: TruckPnlTotals;
+}
+
+export function aggregateTruckPnl(
+  rows: PnlTripRow[],
+  fuelByTruck: Map<string, Prisma.Decimal>,
+  costByTruck: Map<string, Prisma.Decimal>,
+  codeById: Map<string, string>,
+): TruckPnlResult {
+  const zero = () => new Prisma.Decimal(0);
+  interface Acc {
+    code: string;
+    revenue: Prisma.Decimal;
+    driver: Prisma.Decimal;
+    helper: Prisma.Decimal;
+    fuel: Prisma.Decimal;
+    cost: Prisma.Decimal;
+  }
+  const byTruck = new Map<string, Acc>();
+  const ensure = (id: string, code?: string): Acc => {
+    let e = byTruck.get(id);
+    if (!e) {
+      e = {
+        code: code ?? codeById.get(id) ?? id,
+        revenue: zero(),
+        driver: zero(),
+        helper: zero(),
+        fuel: zero(),
+        cost: zero(),
+      };
+      byTruck.set(id, e);
+    }
+    return e;
+  };
+
+  for (const r of rows) {
+    const e = ensure(r.truckId, r.truckCode);
+    e.revenue = e.revenue.add(r.billAmount);
+    e.driver = e.driver.add(r.driverPay);
+    e.helper = e.helper.add(r.helperPay);
+  }
+  for (const [id, amt] of fuelByTruck) ensure(id).fuel = amt;
+  for (const [id, amt] of costByTruck) ensure(id).cost = amt;
+
+  const tot = {
+    revenue: zero(),
+    fuel: zero(),
+    driver: zero(),
+    helper: zero(),
+    cost: zero(),
+    profit: zero(),
+  };
+  const perTruck = [...byTruck.entries()]
+    .map(([truckId, e]) => {
+      const profit = e.revenue
+        .sub(e.fuel)
+        .sub(e.driver)
+        .sub(e.helper)
+        .sub(e.cost);
+      tot.revenue = tot.revenue.add(e.revenue);
+      tot.fuel = tot.fuel.add(e.fuel);
+      tot.driver = tot.driver.add(e.driver);
+      tot.helper = tot.helper.add(e.helper);
+      tot.cost = tot.cost.add(e.cost);
+      tot.profit = tot.profit.add(profit);
+      return {
+        truckId,
+        truckCode: e.code,
+        revenue: e.revenue.toFixed(2),
+        fuel: e.fuel.toFixed(2),
+        driverPay: e.driver.toFixed(2),
+        helperPay: e.helper.toFixed(2),
+        costs: e.cost.toFixed(2),
+        profit: profit.toFixed(2),
+      };
+    })
+    .sort((a, b) => a.truckCode.localeCompare(b.truckCode));
+
+  return {
+    perTruck,
+    totals: {
+      revenue: tot.revenue.toFixed(2),
+      fuel: tot.fuel.toFixed(2),
+      driverPay: tot.driver.toFixed(2),
+      helperPay: tot.helper.toFixed(2),
+      costs: tot.cost.toFixed(2),
+      profit: tot.profit.toFixed(2),
+    },
+  };
+}

@@ -8,6 +8,7 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { BillingModule } from './billing/billing.module';
 import { ClientsModule } from './clients/clients.module';
+import { CostsModule } from './costs/costs.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { envValidationSchema } from './config/env.validation';
 import { FleetModule } from './fleet/fleet.module';
@@ -69,6 +70,9 @@ const AUTH_THROTTLE_LIMIT = 10;
     // Section 7 — Payroll: pay runs over periods with frozen per-trip pay lines
     // (`Payroll` subject). Symmetric with Billing. ADR 0005.
     PayrollModule,
+    // Section 8 — Costs: per-truck cost capture (`Cost` subject) feeding the
+    // per-truck P&L report (in ReportingModule). ADR 0006.
+    CostsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

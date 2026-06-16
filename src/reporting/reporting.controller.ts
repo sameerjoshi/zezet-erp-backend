@@ -14,6 +14,7 @@ import { ClientBillablesReportResponseDto } from './dto/client-billables-report-
 import { OperationalReportResponseDto } from './dto/operational-report-response.dto';
 import { ReportRangeQueryDto } from './dto/report-range-query.dto';
 import { TripsReportResponseDto } from './dto/trips-report-response.dto';
+import { TruckPnlResponseDto } from './dto/truck-pnl-response.dto';
 import { UtilizationReportResponseDto } from './dto/utilization-report-response.dto';
 import { WorkerPayReportResponseDto } from './dto/worker-pay-report-response.dto';
 import { ReportingService } from './reporting.service';
@@ -59,6 +60,15 @@ export class ReportingController {
     @Query() query: ReportRangeQueryDto,
   ): Promise<OperationalReportResponseDto> {
     return this.reporting.operational(query);
+  }
+
+  @Get('truck-pnl')
+  @ApiOperation({
+    summary: 'Per-truck profit & loss (revenue − fuel − pay − costs)',
+  })
+  @ApiOkResponse({ type: TruckPnlResponseDto })
+  truckPnl(@Query() query: ReportRangeQueryDto): Promise<TruckPnlResponseDto> {
+    return this.reporting.truckPnl(query);
   }
 
   @Get('worker-pay')
