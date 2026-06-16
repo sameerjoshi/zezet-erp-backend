@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
+import { BillingModule } from './billing/billing.module';
 import { ClientsModule } from './clients/clients.module';
 import { envValidationSchema } from './config/env.validation';
 import { FleetModule } from './fleet/fleet.module';
@@ -61,6 +62,9 @@ const AUTH_THROTTLE_LIMIT = 10;
     // Section 5 — Reporting: role-gated (`Report` subject) date-range aggregates
     // (trips, utilization, worker-pay, client-billables) for the dashboard.
     ReportingModule,
+    // Section 6 — Billing / AR: invoices over arbitrary client-driven periods
+    // with frozen trip-line snapshots (`Invoice` subject). ADR 0004.
+    BillingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

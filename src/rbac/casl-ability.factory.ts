@@ -31,6 +31,7 @@ export type AppSubject =
   | 'Rate'
   | 'DailyTruckLog'
   | 'Trip'
+  | 'Invoice'
   | 'Report'
   | 'Financial'
   | 'all';
@@ -70,12 +71,20 @@ export class CaslAbilityFactory {
     if (roles.includes(RoleKey.finance)) {
       can(Action.Read, 'all');
       can(Action.Read, 'Financial');
-      can(Action.Manage, ['Rate', 'RateCard', 'Report', 'Financial', 'Trip']);
+      can(Action.Manage, [
+        'Rate',
+        'RateCard',
+        'Report',
+        'Financial',
+        'Trip',
+        'Invoice',
+      ]);
     }
 
-    // investor — read-only on reports; needs the figures those reports carry.
+    // investor — read-only on reports + invoices; needs the figures they carry.
     if (roles.includes(RoleKey.investor)) {
       can(Action.Read, 'Report');
+      can(Action.Read, 'Invoice');
       can(Action.Read, 'Financial');
     }
 

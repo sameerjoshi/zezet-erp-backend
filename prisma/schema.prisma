@@ -115,6 +115,7 @@ model Client {
   status            UserStatus  @default(active)
   rateCards         RateCard[]
   trips             Trip[]
+  invoices          Invoice[]
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 }
@@ -214,4 +215,51 @@ model AuditLog {
   at          DateTime @default(now())
 
   @@index([entity, entityId])
+}
+
+// ---------- Billing / AR ----------
+// Invoices over arbitrary, client-driven periods (ADR 0004). Lines are a frozen
+// snapshot of the trips billed, so an issued invoice stays stable even if a trip
+// is later edited or deleted.
+
+enum InvoiceStatus {
+  draft
+  sent
+  paid
+  void
+}
+
+model Invoice {
+  id          String        @id @default(cuid())
+  number      String        @unique // INV-YYYY-NNNN
+  client      Client        @relation(fields: [clientId], references: [id])
+  clientId    String
+  periodFrom  DateTime      @db.Date
+  periodTo    DateTime      @db.Date
+  status      InvoiceStatus @default(draft)
+  issueDate   DateTime      @db.Date
+  total       Decimal       @db.Decimal(12, 2)
+  amountPaid  Decimal       @default(0) @db.Decimal(12, 2)
+  paidAt      DateTime?
+  notes       String?
+  lines       InvoiceLine[]
+  createdById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([clientId, status])
+}
+
+model InvoiceLine {
+  id         String   @id @default(cuid())
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId  String
+  tripId     String // plain reference, NOT an FK — the line is a frozen snapshot
+  date       DateTime @db.Date
+  truckCode  String
+  routeLabel String?
+  billAmount Decimal  @db.Decimal(12, 2)
+
+  @@index([invoiceId])
+  @@index([tripId])
 }
