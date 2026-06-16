@@ -5,6 +5,19 @@ Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Nex
 
 ---
 
+## 2026-06-16 · Costs + per-truck P&L ✅
+**What changed**
+- New `src/costs` module (ADR 0006): `TruckCost` (truck, date, `CostCategory` maintenance/toll/insurance/tax/repair/other, amount, note) + CRUD `/truck-costs` on a new `Cost` CASL subject (admin/finance manage, investor read, ops denied). Migration `20260616140000_truck_costs`.
+- Reporting: `aggregateTruckPnl` (pure) + `GET /reports/truck-pnl` — per truck `revenue` (trips) − `fuel` (logs) − `driverPay`/`helperPay` (trips) − `costs` (TruckCost) = `profit`, plus fleet totals. Fuel/pay pulled from existing tables; only "other" costs are new.
+
+**Decisions:** ADR 0006. Costs are a separate categorized table (not columns on the log) — extends toward Treasury (#4). Profit is cash-cost (amortization excluded for now; `purchasePrice`/`purchaseDate` stored for a later read-side change).
+
+**Bug found + fixed (import):** `tools/parse-history-xlsx.py` read fuel from the value column; Combustible actually sits in the truck **label** column (2098 cells there, 0 at value col). Only 3/2163 logs had fuel. Parser fixed (commit a9f68c6) → ~2097 fuel logs (~$120k). **Not re-imported;** applied at the end-of-scope fresh re-ingest, so P&L fuel reads ~$0 until then.
+
+**Verified live:** $500 maintenance on Camión 1 → its P&L profit $12,593; fleet May revenue $142,987.63 matches billing.
+
+**Next:** #4 Treasury / bank, then data reset + sanity check.
+
 ## 2026-06-16 · Payroll module ✅
 **What changed**
 - New `src/payroll` module (ADR 0005), symmetric with Billing. Schema: `PayrollRun` + `PayrollLine` (frozen per-trip pay snapshot; `role` driver/helper; `tripId`/`workerId` plain refs) + `PayrollStatus`/`PayRole` enums. Migration `20260616130000_payroll_runs`.
