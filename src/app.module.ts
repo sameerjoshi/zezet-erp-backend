@@ -8,6 +8,7 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { BillingModule } from './billing/billing.module';
 import { ClientsModule } from './clients/clients.module';
+import { PayrollModule } from './payroll/payroll.module';
 import { envValidationSchema } from './config/env.validation';
 import { FleetModule } from './fleet/fleet.module';
 import { OperationsModule } from './operations/operations.module';
@@ -65,6 +66,9 @@ const AUTH_THROTTLE_LIMIT = 10;
     // Section 6 — Billing / AR: invoices over arbitrary client-driven periods
     // with frozen trip-line snapshots (`Invoice` subject). ADR 0004.
     BillingModule,
+    // Section 7 — Payroll: pay runs over periods with frozen per-trip pay lines
+    // (`Payroll` subject). Symmetric with Billing. ADR 0005.
+    PayrollModule,
   ],
   controllers: [AppController],
   providers: [AppService],

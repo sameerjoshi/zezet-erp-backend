@@ -263,3 +263,54 @@ model InvoiceLine {
   @@index([invoiceId])
   @@index([tripId])
 }
+
+// ---------- Payroll ----------
+// Pay runs over periods with frozen per-trip pay lines (ADR 0005). Symmetric with
+// Billing. tripId/workerId are plain references so a line is a stable snapshot.
+
+enum PayrollStatus {
+  draft
+  approved
+  paid
+  void
+}
+
+enum PayRole {
+  driver
+  helper
+}
+
+model PayrollRun {
+  id          String        @id @default(cuid())
+  number      String        @unique // PAY-YYYY-NNNN
+  periodFrom  DateTime      @db.Date
+  periodTo    DateTime      @db.Date
+  status      PayrollStatus @default(draft)
+  total       Decimal       @db.Decimal(12, 2)
+  workerCount Int           @default(0)
+  notes       String?
+  paidAt      DateTime?
+  lines       PayrollLine[]
+  createdById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([status])
+}
+
+model PayrollLine {
+  id         String     @id @default(cuid())
+  run        PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  runId      String
+  tripId     String
+  workerId   String
+  workerName String
+  role       PayRole
+  date       DateTime   @db.Date
+  truckCode  String
+  amount     Decimal    @db.Decimal(12, 2)
+
+  @@index([runId])
+  @@index([tripId])
+  @@index([workerId])
+}
