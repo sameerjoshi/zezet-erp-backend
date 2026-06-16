@@ -5,6 +5,18 @@ Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Nex
 
 ---
 
+## 2026-06-16 · Treasury module ✅
+**What changed**
+- New `src/treasury` module (ADR 0007): `BankAccount` (kind bank/cash, openingBalance) + `Transaction` (single-entry: `TxDirection` inflow/outflow, amount, `TxCategory`, description, optional `truckId` allocation, note). Enums `AccountKind`/`TxDirection`/`TxCategory`. Migration `20260616150000_treasury`.
+- Endpoints (`/treasury`, new `Treasury` CASL subject): accounts CRUD with **live balance** (openingBalance + Σinflows − Σoutflows via groupBy), transactions list (filter account/category/range) / create / delete, and `/treasury/cash-position` (balance per active account + grand total).
+- RBAC: `Treasury` — admin/finance manage, investor read, ops denied.
+
+**Decisions:** ADR 0007. Single-entry signed ledger (not double-entry). Balance computed, not stored. **Manual ledger; auto-posting from Invoice-paid / Payroll-paid / TruckCost via the event bus deferred.** Account hard-delete only when empty (else deactivate).
+
+**Verified live:** account opening $100k → +$5k client payment → balance $105k.
+
+**Next:** end-of-scope data re-ingest (with fuel fix) + sanity check.
+
 ## 2026-06-16 · Costs + per-truck P&L ✅
 **What changed**
 - New `src/costs` module (ADR 0006): `TruckCost` (truck, date, `CostCategory` maintenance/toll/insurance/tax/repair/other, amount, note) + CRUD `/truck-costs` on a new `Cost` CASL subject (admin/finance manage, investor read, ops denied). Migration `20260616140000_truck_costs`.
