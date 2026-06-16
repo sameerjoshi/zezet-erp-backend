@@ -5,6 +5,18 @@ Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Nex
 
 ---
 
+## 2026-06-16 · Payroll module ✅
+**What changed**
+- New `src/payroll` module (ADR 0005), symmetric with Billing. Schema: `PayrollRun` + `PayrollLine` (frozen per-trip pay snapshot; `role` driver/helper; `tripId`/`workerId` plain refs) + `PayrollStatus`/`PayRole` enums. Migration `20260616130000_payroll_runs`.
+- Endpoints (`/payroll`, new `Payroll` CASL subject): `GET preview` (per-worker pay for a period), `POST` (create draft run — two lines per trip [driver + helper], `PAY-YYYY-NNNN`, total + distinct-worker count, in a txn), `GET` list, `GET :id` detail (lines aggregated into per-worker statements), `PATCH :id` (draft→approved→paid→void; paid sets paidAt), `DELETE :id` (draft only).
+- RBAC: `Payroll` — admin/finance manage, investor read, ops denied.
+
+**Decisions:** ADR 0005. A trip is paid once (excludes trips on any non-void run); void releases. Per-worker partial payment deferred. Lines frozen at create; statements aggregate on read.
+
+**Verified live:** PAY-2026-0001 May = 70 workers, $31,331.32; interchangeable pool reflected (driver-only, helper-only, and both).
+
+**Next:** #3 per-truck P&L / cost tracking.
+
 ## 2026-06-16 · Billing / AR module ✅
 **What changed**
 - New `src/billing` module (ADR 0004). Schema: `Invoice` + `InvoiceLine` (frozen trip snapshot — `tripId` is a plain ref, not an FK, so a line survives trip edits/deletes) + `InvoiceStatus` enum. Hand-written migration `20260616120000_billing_invoices`.
