@@ -5,6 +5,18 @@ Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Nex
 
 ---
 
+## 2026-06-16 · Billing / AR module ✅
+**What changed**
+- New `src/billing` module (ADR 0004). Schema: `Invoice` + `InvoiceLine` (frozen trip snapshot — `tripId` is a plain ref, not an FK, so a line survives trip edits/deletes) + `InvoiceStatus` enum. Hand-written migration `20260616120000_billing_invoices`.
+- Endpoints (`/invoices`, guarded on new `Invoice` CASL subject): `GET billable` (preview), `POST` (create draft from client + arbitrary from/to — snapshots not-yet-billed trips, `INV-YYYY-NNNN` number in a txn, summed total), `GET` list (status/client filter), `GET :id` detail, `PATCH :id` (status transitions draft→sent→paid→void + notes; paid sets amountPaid=total+paidAt), `DELETE :id` (draft only), `GET aging` (AR aging current/30/60/90 per client).
+- RBAC: `Invoice` subject — admin/finance **manage**, investor **read**, ops denied. Static routes (`billable`,`aging`) declared before `:id`.
+
+**Decisions:** ADR 0004. A trip bills once (billable query excludes trips on any non-void invoice line); voiding releases them. Full payment only (partial deferred; `amountPaid` stored). Lines frozen at create.
+
+**Gotchas:** number sequence is per-year, zero-padded 4 digits so lexical desc = numeric (fine to 9999); generated inside the create transaction.
+
+**Next:** Payroll module (#2) — same shape (period → frozen lines → statement → status).
+
 ## 2026-06-15 · Operational status + in-service date + operating % ✅
 **What changed**
 - Schema: `OperStatus { operating | no_clients | broken }` enum + nullable `DailyTruckLog.operStatus`; `Truck.inServiceDate @db.Date`. Hand-written migration `20260615120000_operational_status` (applied via `migrate deploy`) backfills trip-bearing logs to `operating` and seeds `inServiceDate` from `purchaseDate`.
