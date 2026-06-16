@@ -344,3 +344,61 @@ model TruckCost {
   @@index([truckId, date])
   @@index([date])
 }
+
+// ---------- Treasury ----------
+// Bank/cash accounts + a categorized single-entry cash ledger (ADR 0007).
+// Replaces Movimientos / Cash flow / Balance.
+
+enum AccountKind {
+  bank
+  cash
+}
+
+enum TxDirection {
+  inflow
+  outflow
+}
+
+enum TxCategory {
+  client_payment
+  investment
+  loan
+  fuel
+  salary
+  maintenance
+  toll
+  insurance
+  tax
+  general
+  transfer
+  other
+}
+
+model BankAccount {
+  id             String        @id @default(cuid())
+  name           String
+  kind           AccountKind   @default(bank)
+  openingBalance Decimal       @default(0) @db.Decimal(14, 2)
+  status         UserStatus    @default(active)
+  transactions   Transaction[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Transaction {
+  id          String      @id @default(cuid())
+  account     BankAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountId   String
+  date        DateTime    @db.Date
+  direction   TxDirection
+  amount      Decimal     @db.Decimal(14, 2) // always positive; direction signs it
+  category    TxCategory
+  description String
+  truckId     String? // optional cost/revenue allocation (plain ref)
+  note        String?
+  createdById String?
+  createdAt   DateTime    @default(now())
+
+  @@index([accountId, date])
+  @@index([date])
+}

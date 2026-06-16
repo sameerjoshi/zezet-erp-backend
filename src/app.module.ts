@@ -10,6 +10,7 @@ import { BillingModule } from './billing/billing.module';
 import { ClientsModule } from './clients/clients.module';
 import { CostsModule } from './costs/costs.module';
 import { PayrollModule } from './payroll/payroll.module';
+import { TreasuryModule } from './treasury/treasury.module';
 import { envValidationSchema } from './config/env.validation';
 import { FleetModule } from './fleet/fleet.module';
 import { OperationsModule } from './operations/operations.module';
@@ -73,6 +74,9 @@ const AUTH_THROTTLE_LIMIT = 10;
     // Section 8 — Costs: per-truck cost capture (`Cost` subject) feeding the
     // per-truck P&L report (in ReportingModule). ADR 0006.
     CostsModule,
+    // Section 9 — Treasury: bank/cash accounts + categorized ledger + cash
+    // position (`Treasury` subject). ADR 0007.
+    TreasuryModule,
   ],
   controllers: [AppController],
   providers: [AppService],
