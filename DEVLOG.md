@@ -5,6 +5,15 @@ Format per entry: **What changed · Decisions/deviations · Gotchas/risks · Nex
 
 ---
 
+## 2026-06-16 · Treasury auto-posting + data reset ✅
+**What changed**
+- **Auto-posting** (ADR 0007 follow-up): event-bus wiring so the ledger isn't double-keyed. Billing emits `invoice.paid` on →paid, Payroll `payroll.paid`, Costs `cost.created`; `TreasuryService` subscribes via `@OnEvent` and posts to the default account. Inflow for invoice (client_payment), outflow for payroll (salary) and cost (mapped category, truck-allocated). Idempotent on (sourceType, sourceId); best-effort (errors logged, never block the paid action). Schema: `TxSource` + `Transaction.sourceId`; `BankAccount.isDefault` (first account auto-default; PATCH to change, demotes others). Migration `20260616160000_treasury_autopost`. Event contracts in `src/treasury/treasury.events.ts` (consumers import them; `import type` for @OnEvent signatures).
+- **Data reset + fresh re-ingest:** deleted all transactions/accounts/invoices/payroll/costs + logs/trips, re-ran `import-history.ts` with the fuel fix. Result: 2,283 trips, 2,176 logs all `operating`, fuel ~$120k, modules empty.
+
+**Sanity check (vs Analisis):** revenue Feb–May within ~0.1–3% (May 99.9%); fuel May $33,067 (was ~$0); trip count ~7-9% over Analisis but revenue matches (extra = zero-charge rows). Jan partial by design.
+
+**Gotchas:** auto-posted entries are independent once created (deleting a cost / voiding state does not reverse the cash entry — money already moved). No DB shadow for raw SQL over SSH (single-quote hell) — used Prisma queries for the sanity script.
+
 ## 2026-06-16 · Treasury module ✅
 **What changed**
 - New `src/treasury` module (ADR 0007): `BankAccount` (kind bank/cash, openingBalance) + `Transaction` (single-entry: `TxDirection` inflow/outflow, amount, `TxCategory`, description, optional `truckId` allocation, note). Enums `AccountKind`/`TxDirection`/`TxCategory`. Migration `20260616150000_treasury`.
