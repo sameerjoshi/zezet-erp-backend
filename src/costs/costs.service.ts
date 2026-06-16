@@ -3,16 +3,21 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
+import { COST_CREATED, CostCreatedEvent } from '../treasury/treasury.events';
 import { ListCostsQueryDto } from './dto/cost-query.dto';
 import { CostResponseDto } from './dto/cost-response.dto';
 import { CreateCostDto } from './dto/create-cost.dto';
 
 @Injectable()
 export class CostsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
+  ) {}
 
   async list(query: ListCostsQueryDto): Promise<CostResponseDto[]> {
     const date = dateFilter(query.from, query.to);
@@ -49,6 +54,18 @@ export class CostsService {
         createdById: user.userId,
       },
     });
+    // Auto-post the cash outflow to the treasury ledger.
+    const e: CostCreatedEvent = {
+      costId: cost.id,
+      truckId: cost.truckId,
+      truckCode: truck.code,
+      category: cost.category,
+      amount: cost.amount.toFixed(2),
+      date: cost.date,
+      note: cost.note,
+    };
+    this.events.emit(COST_CREATED, e);
+
     return {
       id: cost.id,
       truckId: cost.truckId,

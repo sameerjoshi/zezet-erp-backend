@@ -1,9 +1,18 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, TxDirection, UserStatus } from '@prisma/client';
+import { OnEvent } from '@nestjs/event-emitter';
+import {
+  CostCategory,
+  Prisma,
+  TxCategory,
+  TxDirection,
+  TxSource,
+  UserStatus,
+} from '@prisma/client';
 import type { AuthUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -17,9 +26,17 @@ import {
   ListTransactionsQueryDto,
   TransactionResponseDto,
 } from './dto/transaction.dto';
+import { COST_CREATED, INVOICE_PAID, PAYROLL_PAID } from './treasury.events';
+import type {
+  CostCreatedEvent,
+  InvoicePaidEvent,
+  PayrollPaidEvent,
+} from './treasury.events';
 
 @Injectable()
 export class TreasuryService {
+  private readonly logger = new Logger(TreasuryService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   // --- accounts ---
@@ -37,17 +54,21 @@ export class TreasuryService {
       balance: a.openingBalance
         .add(net.get(a.id) ?? new Prisma.Decimal(0))
         .toFixed(2),
+      isDefault: a.isDefault,
       status: a.status,
       createdAt: a.createdAt,
     }));
   }
 
   async createAccount(dto: CreateAccountDto): Promise<AccountResponseDto> {
+    // The first account becomes the auto-post default.
+    const existing = await this.prisma.bankAccount.count();
     const a = await this.prisma.bankAccount.create({
       data: {
         name: dto.name,
         kind: dto.kind,
         openingBalance: dto.openingBalance,
+        isDefault: existing === 0,
       },
     });
     return this.toAccount(a, new Prisma.Decimal(0));
@@ -58,12 +79,20 @@ export class TreasuryService {
     dto: UpdateAccountDto,
   ): Promise<AccountResponseDto> {
     await this.ensureAccount(id);
+    // Only one default — promoting this one demotes the rest.
+    if (dto.isDefault === true) {
+      await this.prisma.bankAccount.updateMany({
+        where: { isDefault: true, id: { not: id } },
+        data: { isDefault: false },
+      });
+    }
     const a = await this.prisma.bankAccount.update({
       where: { id },
       data: {
         name: dto.name,
         kind: dto.kind,
         openingBalance: dto.openingBalance,
+        isDefault: dto.isDefault,
         status: dto.status,
       },
     });
@@ -115,6 +144,7 @@ export class TreasuryService {
       truckId: t.truckId,
       truckCode: t.truckId ? (codeById.get(t.truckId) ?? null) : null,
       note: t.note,
+      sourceType: t.sourceType,
       createdAt: t.createdAt,
     }));
   }
@@ -158,6 +188,7 @@ export class TreasuryService {
       truckId: t.truckId,
       truckCode: t.truckId ? (codeById.get(t.truckId) ?? null) : null,
       note: t.note,
+      sourceType: t.sourceType,
       createdAt: t.createdAt,
     };
   }
@@ -236,6 +267,7 @@ export class TreasuryService {
       name: string;
       kind: AccountResponseDto['kind'];
       openingBalance: Prisma.Decimal;
+      isDefault: boolean;
       status: UserStatus;
       createdAt: Date;
     },
@@ -247,11 +279,122 @@ export class TreasuryService {
       kind: a.kind,
       openingBalance: a.openingBalance.toFixed(2),
       balance: a.openingBalance.add(net).toFixed(2),
+      isDefault: a.isDefault,
       status: a.status,
       createdAt: a.createdAt,
     };
   }
+
+  // --- auto-posting (event-driven) ---
+
+  // Post a ledger entry for a domain event. Idempotent on (sourceType, sourceId)
+  // and a no-op when no account exists. Best-effort: failures are logged, not
+  // thrown, so a paid invoice/run is never blocked by a treasury hiccup.
+  private async autoPost(input: {
+    direction: TxDirection;
+    amount: string;
+    category: TxCategory;
+    description: string;
+    date: Date;
+    truckId?: string;
+    sourceType: TxSource;
+    sourceId: string;
+  }): Promise<void> {
+    try {
+      const dupe = await this.prisma.transaction.findFirst({
+        where: { sourceType: input.sourceType, sourceId: input.sourceId },
+        select: { id: true },
+      });
+      if (dupe) return;
+      const accountId = await this.defaultAccountId();
+      if (!accountId) {
+        this.logger.warn(
+          `auto-post skipped (${input.sourceType} ${input.sourceId}): no treasury account`,
+        );
+        return;
+      }
+      await this.prisma.transaction.create({
+        data: {
+          accountId,
+          date: input.date,
+          direction: input.direction,
+          amount: input.amount,
+          category: input.category,
+          description: input.description,
+          truckId: input.truckId,
+          sourceType: input.sourceType,
+          sourceId: input.sourceId,
+        },
+      });
+    } catch (err) {
+      this.logger.error(`auto-post failed (${input.sourceType})`, err as Error);
+    }
+  }
+
+  private async defaultAccountId(): Promise<string | null> {
+    const def = await this.prisma.bankAccount.findFirst({
+      where: { isDefault: true, status: UserStatus.active },
+      select: { id: true },
+    });
+    if (def) return def.id;
+    const first = await this.prisma.bankAccount.findFirst({
+      where: { status: UserStatus.active },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    return first?.id ?? null;
+  }
+
+  @OnEvent(INVOICE_PAID)
+  async onInvoicePaid(e: InvoicePaidEvent): Promise<void> {
+    await this.autoPost({
+      direction: TxDirection.inflow,
+      amount: e.total,
+      category: TxCategory.client_payment,
+      description: `${e.number} · ${e.clientName}`,
+      date: e.date,
+      sourceType: TxSource.invoice,
+      sourceId: e.invoiceId,
+    });
+  }
+
+  @OnEvent(PAYROLL_PAID)
+  async onPayrollPaid(e: PayrollPaidEvent): Promise<void> {
+    await this.autoPost({
+      direction: TxDirection.outflow,
+      amount: e.total,
+      category: TxCategory.salary,
+      description: e.number,
+      date: e.date,
+      sourceType: TxSource.payroll,
+      sourceId: e.runId,
+    });
+  }
+
+  @OnEvent(COST_CREATED)
+  async onCostCreated(e: CostCreatedEvent): Promise<void> {
+    await this.autoPost({
+      direction: TxDirection.outflow,
+      amount: e.amount,
+      category: COST_TO_TX[e.category as CostCategory] ?? TxCategory.other,
+      description: `${e.truckCode}${e.note ? ` · ${e.note}` : ''}`,
+      date: e.date,
+      truckId: e.truckId,
+      sourceType: TxSource.cost,
+      sourceId: e.costId,
+    });
+  }
 }
+
+// CostCategory → TxCategory (repair folds into maintenance; rest map 1:1).
+const COST_TO_TX: Record<CostCategory, TxCategory> = {
+  maintenance: TxCategory.maintenance,
+  toll: TxCategory.toll,
+  insurance: TxCategory.insurance,
+  tax: TxCategory.tax,
+  repair: TxCategory.maintenance,
+  other: TxCategory.other,
+};
 
 function toDateOnly(value: string): Date {
   return new Date(`${value.slice(0, 10)}T00:00:00.000Z`);

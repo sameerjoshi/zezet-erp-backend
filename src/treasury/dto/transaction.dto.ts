@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { TxCategory, TxDirection } from '@prisma/client';
+import { TxCategory, TxDirection, TxSource } from '@prisma/client';
 import {
   IsDateString,
   IsEnum,
@@ -82,5 +82,7 @@ export class TransactionResponseDto {
   @ApiProperty({ required: false, nullable: true }) truckId!: string | null;
   @ApiProperty({ required: false, nullable: true }) truckCode!: string | null;
   @ApiProperty({ required: false, nullable: true }) note!: string | null;
+  @ApiProperty({ enum: TxSource, description: 'manual or auto-posted source.' })
+  sourceType!: TxSource;
   @ApiProperty() createdAt!: Date;
 }

@@ -3,9 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Invoice, InvoiceStatus, Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
+import { INVOICE_PAID, InvoicePaidEvent } from '../treasury/treasury.events';
 import {
   BillableQueryDto,
   ListInvoicesQueryDto,
@@ -31,7 +33,10 @@ const TRANSITIONS: Record<InvoiceStatus, InvoiceStatus[]> = {
 
 @Injectable()
 export class BillingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
+  ) {}
 
   // Trips eligible to bill: this client's trips in [from, to] not already on a
   // non-void invoice line. Preview shown before the invoice is created.
@@ -179,7 +184,23 @@ export class BillingService {
     }
 
     await this.prisma.invoice.update({ where: { id }, data });
-    return this.getDetail(id);
+    const detail = await this.getDetail(id);
+
+    // Marked paid → auto-post the cash inflow to the treasury ledger.
+    if (
+      dto.status === InvoiceStatus.paid &&
+      invoice.status !== InvoiceStatus.paid
+    ) {
+      const e: InvoicePaidEvent = {
+        invoiceId: detail.id,
+        number: detail.number,
+        clientName: detail.clientName,
+        total: detail.total,
+        date: detail.paidAt ?? new Date(),
+      };
+      this.events.emit(INVOICE_PAID, e);
+    }
+    return detail;
   }
 
   // Only drafts may be deleted (cascade lines). Issued invoices are voided.

@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { AccountKind, UserStatus } from '@prisma/client';
 import {
+  IsBoolean,
   IsEnum,
   IsNumber,
   IsOptional,
@@ -30,6 +31,11 @@ export class UpdateAccountDto extends PartialType(CreateAccountDto) {
   @IsOptional()
   @IsEnum(UserStatus)
   status?: UserStatus;
+
+  @ApiPropertyOptional({ description: 'Make this the auto-post account.' })
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
 }
 
 // Account with its live balance (openingBalance + inflows − outflows).
@@ -39,6 +45,8 @@ export class AccountResponseDto {
   @ApiProperty({ enum: AccountKind }) kind!: AccountKind;
   @ApiProperty() openingBalance!: string;
   @ApiProperty({ description: 'Current balance.' }) balance!: string;
+  @ApiProperty({ description: 'Auto-posted entries land here.' })
+  isDefault!: boolean;
   @ApiProperty({ enum: UserStatus }) status!: UserStatus;
   @ApiProperty() createdAt!: Date;
 }

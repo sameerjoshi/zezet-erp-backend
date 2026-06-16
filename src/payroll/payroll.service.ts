@@ -3,9 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PayRole, PayrollRun, PayrollStatus, Prisma } from '@prisma/client';
 import type { AuthUser } from '../auth/strategies/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
+import { PAYROLL_PAID, PayrollPaidEvent } from '../treasury/treasury.events';
 import { CreateRunDto } from './dto/create-run.dto';
 import {
   ListRunsQueryDto,
@@ -39,7 +41,10 @@ const TRANSITIONS: Record<PayrollStatus, PayrollStatus[]> = {
 
 @Injectable()
 export class PayrollService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: EventEmitter2,
+  ) {}
 
   async preview(
     query: PayrollPreviewQueryDto,
@@ -136,7 +141,22 @@ export class PayrollService {
       if (dto.status === PayrollStatus.paid) data.paidAt = new Date();
     }
     await this.prisma.payrollRun.update({ where: { id }, data });
-    return this.getDetail(id);
+    const detail = await this.getDetail(id);
+
+    // Marked paid → auto-post the cash outflow to the treasury ledger.
+    if (
+      dto.status === PayrollStatus.paid &&
+      run.status !== PayrollStatus.paid
+    ) {
+      const e: PayrollPaidEvent = {
+        runId: detail.id,
+        number: detail.number,
+        total: detail.total,
+        date: detail.paidAt ?? new Date(),
+      };
+      this.events.emit(PAYROLL_PAID, e);
+    }
+    return detail;
   }
 
   async remove(id: string): Promise<void> {

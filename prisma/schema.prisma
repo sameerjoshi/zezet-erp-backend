@@ -359,6 +359,15 @@ enum TxDirection {
   outflow
 }
 
+// Where a ledger entry came from. Auto-posted entries (invoice paid, payroll paid,
+// cost recorded) carry their source so they are idempotent and traceable.
+enum TxSource {
+  manual
+  invoice
+  payroll
+  cost
+}
+
 enum TxCategory {
   client_payment
   investment
@@ -379,6 +388,7 @@ model BankAccount {
   name           String
   kind           AccountKind   @default(bank)
   openingBalance Decimal       @default(0) @db.Decimal(14, 2)
+  isDefault      Boolean       @default(false) // auto-posted entries land here
   status         UserStatus    @default(active)
   transactions   Transaction[]
   createdAt      DateTime      @default(now())
@@ -396,9 +406,12 @@ model Transaction {
   description String
   truckId     String? // optional cost/revenue allocation (plain ref)
   note        String?
+  sourceType  TxSource    @default(manual)
+  sourceId    String? // id of the invoice/payroll-run/cost that auto-posted this
   createdById String?
   createdAt   DateTime    @default(now())
 
   @@index([accountId, date])
   @@index([date])
+  @@index([sourceType, sourceId])
 }
